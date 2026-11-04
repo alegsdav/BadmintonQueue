@@ -1,5 +1,5 @@
 // Public values from Supabase -> Project Settings -> API. The anon key is safe to expose; security is enforced by the database.
 window.CONFIG = {
-  SUPABASE_URL: 'https://YOUR-PROJECT.supabase.co',
-  SUPABASE_ANON_KEY: 'YOUR-ANON-PUBLIC-KEY'
+  SUPABASE_URL: 'https://ekpzfbxidffnocuqzfep.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_24BtXYuhiQFUlbQGoHLwfA_O4id-lZH'
 };
