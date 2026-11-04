@@ -11,7 +11,7 @@ const sb = createClient(URL, KEY);
 
 // ---- data layer: every change is a Postgres function (see supabase/schema.sql) ----
 const RPC = {
-  state: ['get_state', () => ({})], join: ['join_queue', () => ({})], leave: ['leave_queue', () => ({})],
+  state: ['get_state', () => ({})], join: ['join_queue', () => ({})], joinCourt: ['join_court', b => ({ p_court: b.court })], leave: ['leave_queue', () => ({})],
   invite: ['send_invite', b => ({ p_email: b.email ?? null, p_user: b.userId ?? null })],
   respond: ['respond_invite', b => ({ p_id: b.id, p_accept: b.accept })], cancel: ['cancel_invite', b => ({ p_id: b.id })],
   win: ['report_win', b => ({ p_court: b.court, p_side: b.side })], kick: ['admin_kick', b => ({ p_user: b.userId })],
@@ -76,13 +76,15 @@ function courtCard(c, i, me, loc) {
 
 function statusCard(me, loc) {
   const inc = S.invites.filter(i => i.to === S.me.id), out = S.invites.filter(i => i.from === S.me.id);
+  const waitingPlayers = S.queue.filter(e => e.members.length === 1 && e.members[0] !== S.me.id);
   const paired = me && me.members.length > 1, mate = paired ? me.members.filter(m => m !== S.me.id).map(N).join(', ') : '';
   const pos = S.queue.findIndex(isMine) + 1;
   const head = !loc ? ['Ready to play?', 'Join the queue on your own, or invite a partner by email.']
     : loc === 'court' ? ['You’re on court ' + (S.courts.findIndex(c => [...c.a, ...c.b].some(isMine)) + 1), paired ? `Playing with ${mate}.` : 'Good luck out there.']
     : [pos === 1 ? 'You’re next up' : `You’re number ${pos} in line`, paired ? `Queued with ${mate}.` : 'You’ll be moved onto a court as soon as one opens.'];
   return `<section class="card status"><div><h2>${esc(head[0])}</h2><p class="mute" style="margin:4px 0 0">${esc(head[1])}</p></div>
-    <div class="row">${!loc ? '<button class="btn primary" data-act="join">Join as 1 player</button>' : `<button class="btn danger" data-act="leave">${loc === 'court' ? 'Leave court' : 'Leave queue'}</button>`}
+    <div class="row">${!loc ? `<form data-form="join"><select name="court" aria-label="Choose a court"><option value="">Any available court</option>${S.courts.map((_, i) => `<option value="${i}">Court ${i + 1}</option>`).join('')}</select><button class="btn primary">Join as 1 player</button></form>` : `<button class="btn danger" data-act="leave">${loc === 'court' ? 'Leave court' : 'Leave queue'}</button>`}
+    ${!loc && waitingPlayers.length ? `<form data-form="player-invite"><select name="userId" aria-label="Choose a player to pair with" required><option value="">Choose a waiting player…</option>${waitingPlayers.map(e => `<option value="${esc(e.members[0])}">${esc(N(e.members[0]))}</option>`).join('')}</select><button class="btn">Invite to pair</button></form>` : ''}
     ${!paired ? '<form data-form="invite"><input type="email" name="email" placeholder="Partner’s account email" required><button class="btn">Invite partner</button></form>' : ''}</div>
     ${inc.map(i => `<div class="invite"><span><b>${esc(N(i.from))}</b> wants to pair up with you</span><span class="row"><button class="btn primary sm" data-act="accept" data-id="${i.id}">Accept</button><button class="btn sm" data-act="decline" data-id="${i.id}">Decline</button></span></div>`).join('')}
     ${out.map(i => `<div class="invite"><span class="mute">Waiting for ${esc(N(i.to))} to accept</span><button class="btn sm" data-act="cancel" data-id="${i.id}">Cancel</button></div>`).join('')}</section>`;
@@ -129,19 +131,37 @@ $app.addEventListener('change', e => {
 });
 $app.addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target, v = Object.fromEntries(new FormData(f));
+  if (f.dataset.form === 'join') {
+    if (v.court === '') await act('join');
+    else await act('joinCourt', { court: Number(v.court) });
+  }
+  if (f.dataset.form === 'player-invite') {
+    if (await act('invite', { userId: v.userId })) toast('Invite sent');
+  }
   if (f.dataset.form === 'invite') { if (await act('invite', { email: v.email })) toast('Invite sent'); }
   if (f.dataset.form === 'allow') act('allow', { email: v.email, add: true });
   if (f.dataset.form === 'auth') {
     authErr = authMsg = '';
     try {
-      if (mode === 'login') { const { error } = await sb.auth.signInWithPassword(v); if (error) throw error; }
+      const email = String(v.email).trim().toLowerCase();
+      if (mode === 'login') {
+        const { error } = await sb.auth.signInWithPassword({ email, password: v.password });
+        if (error) throw error;
+      }
       else {
-        const { data, error } = await sb.auth.signUp({ email: v.email, password: v.password, options: { data: { name: v.name }, emailRedirectTo: location.origin } });
+        const { data, error } = await sb.auth.signUp({ email, password: v.password, options: { data: { name: String(v.name).trim() }, emailRedirectTo: location.origin } });
         if (error) throw error;
         if (!data.session) { authMsg = 'Check your email to confirm your account, then sign in.'; mode = 'login'; }
       }
       await load(true);
-    } catch (x) { authErr = x.message; render(); }
+    } catch (x) {
+      authErr = x.code === 'email_not_confirmed'
+        ? 'Confirm your email using the link we sent before signing in.'
+        : x.code === 'invalid_credentials'
+          ? 'Email or password is incorrect. Check your details and try again.'
+          : x.message;
+      render();
+    }
   }
 });
 
