@@ -11,7 +11,8 @@ const sb = createClient(URL, KEY);
 
 // ---- data layer: every change is a Postgres function (see supabase/schema.sql) ----
 const RPC = {
-  state: ['get_state', () => ({})], join: ['join_queue', () => ({})], joinCourt: ['join_court', b => ({ p_court: b.court, p_side: b.side })], leave: ['leave_queue', () => ({})],
+  state: ['get_state', () => ({})], join: ['join_queue', () => ({})], joinCourt: ['join_court', b => ({ p_court: b.court, p_side: b.side })],
+  queueToCourt: ['queue_to_court', b => ({ p_court: b.court, p_side: b.side })], leave: ['leave_queue', () => ({})],
   leavePair: ['leave_pair', () => ({})], removePair: ['admin_remove_pair', b => ({ p_entry: b.entryId })],
   invite: ['send_invite', b => ({ p_email: b.email ?? null, p_user: b.userId ?? null, p_court: b.court ?? null, p_side: b.side ?? null })],
   respond: ['respond_invite', b => ({ p_id: b.id, p_accept: b.accept })], cancel: ['cancel_invite', b => ({ p_id: b.id })],
@@ -80,18 +81,30 @@ function invitePlacement() {
     <select name="side" aria-label="Choose a side" required><option value="">Choose side…</option><option value="a">Left side</option><option value="b">Right side</option></select>`;
 }
 
+function openCourtSides(entry) {
+  if (!entry || S.queue[0]?.id !== entry.id) return [];
+  const size = entry.members.length;
+  return S.courts.flatMap((court, i) => ['a', 'b'].flatMap(side => {
+    const players = court[side].reduce((count, item) => count + item.members.length, 0);
+    const room = 2 - players;
+    return room >= size ? [{ value: `${i}:${side}`, label: `Court ${i + 1} · ${side === 'a' ? 'Left' : 'Right'} side (${room} open)` }] : [];
+  }));
+}
+
 function statusCard(me, loc) {
   const inc = S.invites.filter(i => i.to === S.me.id), out = S.invites.filter(i => i.from === S.me.id);
   const waitingPlayers = S.queue.filter(e => e.members.length === 1 && e.members[0] !== S.me.id);
   const paired = me && me.members.length > 1, mate = paired ? me.members.filter(m => m !== S.me.id).map(N).join(', ') : '';
   const pos = S.queue.findIndex(isMine) + 1;
+  const openSides = loc === 'queue' ? openCourtSides(me) : [];
   const head = !loc ? ['Ready to play?', 'Join the queue on your own, or invite a partner by email.']
     : loc === 'court' ? ['You’re on court ' + (S.courts.findIndex(c => [...c.a, ...c.b].some(isMine)) + 1), paired ? `Playing with ${mate}.` : 'Good luck out there.']
-    : [pos === 1 ? 'You’re next up' : `You’re number ${pos} in line`, paired ? `Queued with ${mate}.` : 'You’ll be moved onto a court as soon as one opens.'];
+    : [pos === 1 ? 'You’re next up' : `You’re number ${pos} in line`, paired ? `Queued with ${mate}.` : openSides.length ? 'Choose an open court side to rejoin, or stay in line.' : 'You’ll be moved onto a court as soon as one opens.'];
   const inviteFields = invitePlacement();
   return `<section class="card status"><div><h2>${esc(head[0])}</h2><p class="mute" style="margin:4px 0 0">${esc(head[1])}</p></div>
     <div class="row">${!loc ? `<form data-form="join"><select name="court" aria-label="Choose a court"><option value="">Any available court</option>${S.courts.map((_, i) => `<option value="${i}">Court ${i + 1}</option>`).join('')}</select><select name="side" aria-label="Choose a side"><option value="">Choose side…</option><option value="a">Left side</option><option value="b">Right side</option></select><button class="btn primary">Join court</button></form>` : `<button class="btn danger" data-act="leave">${loc === 'court' ? 'Leave court' : 'Leave queue'}</button>`}
     ${paired ? '<button class="btn danger" data-act="leavePair">Leave with partner</button>' : ''}
+    ${openSides.length ? `<form data-form="queue-to-court"><label class="sr-only" for="rejoin-spot">Choose an open court side</label><select id="rejoin-spot" name="spot" required><option value="">Choose open court…</option>${openSides.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('')}</select><button class="btn primary">Join open court${paired ? ' with partner' : ''}</button></form>` : ''}
     ${loc !== 'court' && !paired && waitingPlayers.length ? `<form data-form="player-invite"><select name="userId" aria-label="Choose a player to pair with" required><option value="">Choose a waiting player…</option>${waitingPlayers.map(e => `<option value="${esc(e.members[0])}">${esc(N(e.members[0]))}</option>`).join('')}</select>${inviteFields}<button class="btn">Invite to court</button></form>` : ''}
     ${loc !== 'court' && !paired ? `<form data-form="invite"><input type="email" name="email" placeholder="Partner’s account email" required>${inviteFields}<button class="btn">Invite to court</button></form>` : ''}</div>
     ${inc.map(i => `<div class="invite"><span><b>${esc(N(i.from))}</b> invites you to join ${i.court === null ? 'as a pair in the queue' : `Court ${Number(i.court) + 1}, ${i.side === 'a' ? 'left' : 'right'} side`}.</span><span class="row"><button class="btn primary sm" data-act="accept" data-id="${i.id}">Accept</button><button class="btn sm" data-act="decline" data-id="${i.id}">Decline</button></span></div>`).join('')}
@@ -151,6 +164,10 @@ $app.addEventListener('submit', async e => {
     if (v.court === '') await act('join');
     else if (v.side) await act('joinCourt', { court: Number(v.court), side: v.side });
     else toast('Choose a side on the selected court.');
+  }
+  if (f.dataset.form === 'queue-to-court') {
+    const [court, side] = v.spot.split(':');
+    if (court !== undefined && side) await act('queueToCourt', { court: Number(court), side });
   }
   if (f.dataset.form === 'player-invite') {
     if (v.court !== '' && v.side && await act('invite', { userId: v.userId, court: Number(v.court), side: v.side })) toast('Invite sent');

@@ -23,4 +23,5 @@ Add two Environment Variables in Project Settings: `VITE_SUPABASE_URL` and `VITE
 - More courts: `update settings set courts_count = 3;`
 - Players can join a specific court and choose a side, or join the general queue. Court invites can target an available court and side and place both players there after acceptance. For existing Supabase projects, run the migration files in `supabase/migrations/` in filename order in the SQL Editor.
 - Pairs can leave together, and admins can remove a whole pair from its spot. Admins can also toggle whether losing players rejoin the queue.
+- When loser rejoin is enabled and no one is already waiting, the losing entry stays in the queue so its members can choose an open side together. Court selection is only available to the first queue entry and requires enough room for the entire entry.
 - All writes go through database functions; clients cannot edit tables directly, so admin rules hold even if someone tampers with the page.

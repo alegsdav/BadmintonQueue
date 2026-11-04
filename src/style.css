@@ -7,6 +7,7 @@ h1,h2,h3{font-family:Anybody,Impact,system-ui,sans-serif;font-stretch:125%;font-
 h2{font-size:1.5rem}h3{font-size:1.1rem}
 .wrap{width:min(100%,1440px);margin:0 auto;padding:clamp(12px,2.5vw,28px) clamp(12px,3vw,24px) 56px}
 .mute{color:var(--mute)}.err{color:var(--bad)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 /* header */
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:20px;min-width:0}
 .brand{display:flex;align-items:center;gap:10px;font-family:Anybody,system-ui,sans-serif;font-stretch:130%;font-weight:800;font-size:1.25rem}
