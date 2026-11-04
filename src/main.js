@@ -98,7 +98,7 @@ function statusCard(me, loc) {
   const paired = me && me.members.length > 1, mate = paired ? me.members.filter(m => m !== S.me.id).map(N).join(', ') : '';
   const pos = S.queue.findIndex(isMine) + 1;
   const openSides = loc === 'queue' ? openCourtSides(me) : [];
-  const head = !loc ? ['Ready to play?', 'Join the queue on your own, or invite a partner by email.']
+  const head = !loc ? ['Ready to learn how to queue up properly?', 'Join the queue on your own, or invite a partner by email.']
     : loc === 'court' ? ['You’re on court ' + (S.courts.findIndex(c => [...c.a, ...c.b].some(isMine)) + 1), paired ? `Playing with ${mate}.` : 'Good luck out there.']
     : [pos === 1 ? 'You’re next up' : `You’re number ${pos} in line`, paired ? `Queued with ${mate}.` : openSides.length ? 'Choose an open court side to rejoin, or stay in line.' : 'You’ll be moved onto a court as soon as one opens.'];
   const inviteFields = invitePlacement();
@@ -107,7 +107,7 @@ function statusCard(me, loc) {
     ${paired ? '<button class="btn danger" data-act="leavePair">Leave with partner</button>' : ''}
     ${openSides.length ? `<form data-form="queue-to-court"><label class="sr-only" for="rejoin-spot">Choose an open court side</label><select id="rejoin-spot" name="spot" required><option value="">Choose open court…</option>${openSides.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('')}</select><button class="btn primary">Join open court${paired ? ' with partner' : ''}</button></form>` : ''}
     ${loc !== 'court' && !paired && waitingPlayers.length ? `<form data-form="player-invite"><select name="userId" aria-label="Choose a player to pair with" required><option value="">Choose a waiting player…</option>${waitingPlayers.map(e => `<option value="${esc(e.members[0])}">${esc(N(e.members[0]))}</option>`).join('')}</select>${inviteFields}<button class="btn">Invite to court</button></form>` : ''}
-    ${loc !== 'court' && !paired ? `<form data-form="invite"><input type="email" name="email" placeholder="Partner’s account email" required>${inviteFields}<button class="btn">Invite to court</button></form>` : ''}</div>
+    ${loc !== 'court' && !paired ? `<form data-form="invite"><input type="text" name="email" placeholder="Partner’s email or username" autocomplete="off" required>${inviteFields}<button class="btn">Invite to court</button></form>` : ''}</div>
     ${inc.map(i => `<div class="invite"><span><b>${esc(N(i.from))}</b> invites you to join ${i.court === null ? 'as a pair in the queue' : `Court ${Number(i.court) + 1}, ${i.side === 'a' ? 'left' : 'right'} side`}.</span><span class="row"><button class="btn primary sm" data-act="accept" data-id="${i.id}">Accept</button><button class="btn sm" data-act="decline" data-id="${i.id}">Decline</button></span></div>`).join('')}
     ${out.map(i => `<div class="invite"><span class="mute">Waiting for ${esc(N(i.to))} to accept${i.court === null ? '' : ` your Court ${Number(i.court) + 1}, ${i.side === 'a' ? 'left' : 'right'} side invite`}</span><button class="btn sm" data-act="cancel" data-id="${i.id}">Cancel</button></div>`).join('')}</section>`;
 }
