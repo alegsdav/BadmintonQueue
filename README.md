@@ -21,5 +21,6 @@ Add two Environment Variables in Project Settings: `VITE_SUPABASE_URL` and `VITE
 
 ## Notes
 - More courts: `update settings set courts_count = 3;`
-- Players can join a specific court or any available court, and can invite a waiting player to pair up. For an existing Supabase project, run `supabase/migrations/20261104_add_join_court.sql` in the SQL Editor.
+- Players can join a specific court and choose a side, or join the general queue. For existing Supabase projects, run the migration files in `supabase/migrations/` in filename order in the SQL Editor.
+- Pairs can leave together, and admins can remove a whole pair from its spot. Admins can also toggle whether losing players rejoin the queue.
 - All writes go through database functions; clients cannot edit tables directly, so admin rules hold even if someone tampers with the page.
