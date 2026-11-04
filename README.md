@@ -1,19 +1,24 @@
-# Badminton Queue (Supabase + Vercel)
+# Courtside Queue
 
-Static front end on Vercel, Postgres + Auth + Realtime on Supabase. No server code and no build step.
+Badminton court queue: Vite (vanilla JS) front end, Supabase (Postgres, Auth, Realtime), deployed on Vercel.
+Winner-stays doubles, pairs or singles, admin allowlist by email.
 
-## 1. Supabase
-1. Create a project at supabase.com.
-2. **SQL Editor** -> paste `supabase/schema.sql`, change `you@example.com` to your admin email, and run it (fresh project, run once).
-3. **Authentication -> Providers -> Email**: keep "Confirm email" ON (this is what makes the admin email allowlist trustworthy).
-4. **Authentication -> URL Configuration**: set Site URL to your Vercel URL (add `http://localhost:3000` as an extra redirect for local testing).
-5. **Project Settings -> API**: copy the Project URL and anon public key into `config.js`.
+## Run locally
+    npm install
+    cp .env.example .env.local     # fill in your Supabase URL + anon key
+    npm run dev                    # http://localhost:5173
 
-## 2. Vercel
-Push this folder to GitHub -> Vercel "Add New Project" -> import it (Framework Preset: Other, no build command, output directory blank).
-Or from the folder: `npx vercel --prod`. Local test: `npx serve .`
+## Supabase (one-time)
+1. Create a project, open **SQL Editor**, paste `supabase/schema.sql`, change `you@example.com` to your admin email, run it.
+2. **Authentication -> Providers -> Email**: keep "Confirm email" ON.
+3. **Authentication -> URL Configuration**: Site URL = your Vercel URL; add `http://localhost:5173` as a redirect URL for local dev.
+4. **Project Settings -> API**: copy the Project URL and anon/publishable key into `.env.local`.
+
+## Deploy to Vercel
+Push to GitHub, then Vercel -> Add New Project -> import. Vercel detects Vite automatically (build `npm run build`, output `dist`).
+Add two Environment Variables in Project Settings: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, then redeploy.
+(Or: `npx vercel`, then add the variables and run `npx vercel --prod`.)
 
 ## Notes
-- Admins = confirmed accounts whose email is in the `admin_emails` table (manage on the Admin tab or in the Table Editor).
-- Number of courts: `update settings set courts_count = 3;`
-- Every change goes through database functions; clients cannot write tables directly.
+- More courts: `update settings set courts_count = 3;`
+- All writes go through database functions; clients cannot edit tables directly, so admin rules hold even if someone tampers with the page.

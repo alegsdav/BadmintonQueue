@@ -1,102 +1,13 @@
-<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Badminton Court Queue</title>
-<style>
-:root{--bg:#f4f6f1;--card:#fff;--ink:#1c2b21;--mute:#667a6c;--line:#dbe3d8;--acc:#1f8a4c;--accfg:#fff;--warn:#c0392b;--a:#e8f4ec;--b:#fdf1e3}
-@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#111a14;--card:#1a261e;--ink:#e8f0ea;--mute:#8fa596;--line:#2b3b30;--acc:#3dbb74;--accfg:#08150d;--warn:#ff7a6b;--a:#1f3527;--b:#3a2c1a}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,sans-serif}
-main{max-width:860px;margin:0 auto;padding:16px}h1{font-size:1.4rem;margin:0}h2{font-size:1.05rem;margin:0 0 8px}
-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-button,select,input{font:inherit;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 12px}
-button{cursor:pointer}button.pri{background:var(--acc);color:var(--accfg);border-color:var(--acc);font-weight:600}
-button.bad{color:var(--warn)}button.on{background:var(--ink);color:var(--bg)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
-.courts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
-.side{border-radius:8px;padding:8px;margin:6px 0;min-height:64px}.side.a{background:var(--a)}.side.b{background:var(--b)}
-.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:space-between;padding:5px 0}
-.me{font-weight:700}.mute{color:var(--mute);font-size:.9rem}.err{color:var(--warn)}
-form{display:grid;gap:8px;max-width:340px}
-</style></head><body><main><div id="app" class="mute">Loading…</div></main>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js"></script>
-<script>
-const h=(t,a={},...k)=>{const e=document.createElement(t);for(const x in a){if(x==='on')for(const v in a.on)e.addEventListener(v,a.on[v]);else if(x==='cls')e.className=a[x];else e[x]=a[x]}for(const c of k.flat())if(c!=null)e.append(c.nodeType?c:document.createTextNode(c));return e};
-const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY);
-const RPC={state:['get_state',()=>({})],join:['join_queue',()=>({})],leave:['leave_queue',()=>({})],
- invite:['send_invite',b=>({p_email:b.email??null,p_user:b.userId??null})],'invite/respond':['respond_invite',b=>({p_id:b.id,p_accept:b.accept})],
- 'invite/cancel':['cancel_invite',b=>({p_id:b.id})],win:['report_win',b=>({p_court:b.court,p_side:b.side})],
- 'admin/kick':['admin_kick',b=>({p_user:b.userId})],'admin/move':['admin_move',b=>({p_entry:b.entryId,p_dest:b.dest})],
- 'admin/allow':['admin_allow',b=>({p_email:b.email,p_add:b.add})],'admin/settings':['admin_set_loser_back',b=>({p:b.loserBack})]};
-const api=async(p,b={})=>{const[fn,m]=RPC[p];const{data,error}=await sb.rpc(fn,m(b));if(error)throw new Error(error.message);return data};
-let S=null,tab='play',mode='login',authErr='',authMsg='';
-async function load(force){const{data:{session}}=await sb.auth.getSession();if(!session)S=null;else{try{S=await api('state')}catch{}}
-  if(force||!/INPUT|SELECT/.test(document.activeElement.tagName))render()}
-async function act(p,b){try{await api(p,b)}catch(e){alert(e.message)}load(true)}
-const N=id=>(S.names[id]||'Player');
-const label=e=>e.members.map(N).join(' + ');
-const isMine=e=>e.members.includes(S.me.id);
-const locate=()=>{for(const c of S.courts)for(const k of['a','b'])if(c[k].some(isMine))return'court';return S.queue.some(isMine)?'queue':null};
-const myEntry=()=>[...S.queue,...S.courts.flatMap(c=>[...c.a,...c.b])].find(isMine);
-
-function auth(){const f=h('form',{},h('h2',{},mode==='login'?'Sign in':'Create account'));
-  const v={};const inp=(k,ph,t='text')=>{v[k]=h('input',{placeholder:ph,type:t,required:true});f.append(v[k])};
-  if(mode==='register')inp('name','Your name');inp('email','Email','email');inp('password','Password (8+ characters)','password');
-  f.append(h('button',{cls:'pri'},mode==='login'?'Sign in':'Sign up'),h('div',{cls:'err'},authErr),h('div',{cls:'mute'},authMsg),
-    h('a',{href:'#',on:{click:e=>{e.preventDefault();mode=mode==='login'?'register':'login';authErr='';render()}}},mode==='login'?'Need an account? Sign up':'Have an account? Sign in'));
-  f.onsubmit=async e=>{e.preventDefault();authErr='';authMsg='';const x=Object.fromEntries(Object.entries(v).map(([k,i])=>[k,i.value]));
-    try{if(mode==='login'){const{error}=await sb.auth.signInWithPassword(x);if(error)throw error}
-      else{const{data,error}=await sb.auth.signUp({email:x.email,password:x.password,options:{data:{name:x.name},emailRedirectTo:location.origin}});if(error)throw error;
-        if(!data.session){authMsg='Check your email to confirm your account, then sign in.';mode='login'}}
-      await load(true)}catch(err){authErr=err.message;render()}};
-  return h('div',{cls:'card'},f)}
-
-function render(){const app=document.getElementById('app');app.replaceChildren();
-  if(!S||!S.me){app.append(h('header',{},h('h1',{},'🏸 Badminton Queue')),auth());return}
-  const admin=S.me.isAdmin;if(!admin)tab='play';const adm=tab==='admin';
-  app.append(h('header',{},h('h1',{},'🏸 Badminton Queue'),h('div',{cls:'bar'},h('span',{cls:'mute'},S.me.name),
-    h('button',{cls:tab==='play'?'on':'',on:{click:()=>{tab='play';render()}}},'Play'),
-    admin&&h('button',{cls:adm?'on':'',on:{click:()=>{tab='admin';render()}}},'Admin'),
-    h('button',{on:{click:async()=>{await sb.auth.signOut();S=null;render()}}},'Sign out'))));
-  const loc=locate(),me=myEntry(),paired=me&&me.members.length>1;
-  if(!adm){
-    const inc=S.invites.filter(i=>i.to===S.me.id),out=S.invites.filter(i=>i.from===S.me.id);
-    const pe=h('input',{type:'email',placeholder:'Partner’s account email'});
-    app.append(h('div',{cls:'card'},h('h2',{},'Sign up'),
-      !loc&&h('div',{cls:'row'},h('button',{cls:'pri',on:{click:()=>act('join',{})}},'Join as 1 player')),
-      loc&&h('div',{cls:'mute'},loc==='queue'?'You’re in the queue'+(paired?' with '+me.members.filter(m=>m!==S.me.id).map(N):'')+'.':'You’re on a court.'),
-      loc&&h('div',{cls:'row'},h('button',{cls:'bad',on:{click:()=>act('leave',{})}},loc==='queue'?'Leave queue':'Leave court')),
-      !paired&&h('div',{cls:'row'},pe,h('button',{on:{click:()=>act('invite',{email:pe.value})}},'Invite as partner')),
-      h('div',{cls:'mute'},'Pairs are promoted together; singles are matched with the next single in line. Click “Team up” next to a waiting single to partner with them.'),
-      inc.map(i=>h('div',{cls:'row'},N(i.from)+' invited you to pair up',h('span',{},h('button',{cls:'pri',on:{click:()=>act('invite/respond',{id:i.id,accept:true})}},'Accept'),' ',h('button',{on:{click:()=>act('invite/respond',{id:i.id,accept:false})}},'Decline')))),
-      out.map(i=>h('div',{cls:'row'},'Waiting for '+N(i.to)+' to accept',h('button',{on:{click:()=>act('invite/cancel',{id:i.id})}},'Cancel')))));
-  }
-  const kick=uid=>h('button',{cls:'bad',on:{click:()=>confirm('Remove '+N(uid)+'?')&&act('admin/kick',{userId:uid})}},'Kick '+N(uid).split(' ')[0]);
-  const mv=(e,cur)=>{const s=h('select',{},h('option',{value:''},'Move to…'));S.courts.forEach((_,i)=>i!==cur&&s.append(h('option',{value:'c'+i},'Court '+(i+1))));s.append(h('option',{value:'q-front'},'Queue front'));if(cur>=0)s.append(h('option',{value:'q-end'},'Queue end'));s.onchange=()=>s.value&&act('admin/move',{entryId:e.id,dest:s.value});return s};
-  const who=(e,i,onCourt)=>h('div',{cls:'row'},h('span',{cls:isMine(e)?'me':''},(i!=null?(i+1)+'. ':'')+label(e)),
-    adm?h('span',{cls:'bar'},mv(e,onCourt),e.members.map(kick)):
-    isMine(e)?h('span',{cls:'mute'},'you'):
-    (!onCourt&&e.members.length===1&&!paired&&loc!=='court'&&h('button',{on:{click:()=>act('invite',{userId:e.members[0]})}},'Team up')));
-  const courts=h('div',{cls:'courts'});
-  S.courts.forEach((c,i)=>{const card=h('div',{cls:'card'},h('h2',{},'Court '+(i+1)));
-    for(const k of['a','b']){const side=h('div',{cls:'side '+k},h('div',{cls:'mute'},'Side '+k.toUpperCase()));
-      if(!c[k].length)side.append(h('span',{cls:'mute'},'Open'));c[k].forEach(e=>side.append(who(e,null,i)));card.append(side)}
-    const on=[...c.a,...c.b].some(isMine);
-    if(c.a.length&&c.b.length&&(on||admin))card.append(h('div',{cls:'row'},h('button',{on:{click:()=>act('win',{court:i,side:'a'})}},'Side A won'),h('button',{on:{click:()=>act('win',{court:i,side:'b'})}},'Side B won')));
-    courts.append(card)});
-  app.append(courts);
-  const q=h('div',{cls:'card'},h('h2',{},'Waiting queue ('+S.queue.reduce((n,e)=>n+e.members.length,0)+' players)'));
-  if(!S.queue.length)q.append(h('div',{cls:'mute'},'Nobody waiting.'));S.queue.forEach((e,i)=>q.append(who(e,i,-1)));app.append(q);
-  if(adm){
-    app.append(h('div',{cls:'card'},h('h2',{},'Settings'),h('label',{},h('input',{type:'checkbox',checked:S.loserBack,on:{change:e=>act('admin/settings',{loserBack:e.target.checked})}}),' Losers go to the back of the queue (otherwise they leave the court)')));
-    const ae=h('input',{type:'email',placeholder:'admin@example.com'});
-    app.append(h('div',{cls:'card'},h('h2',{},'Admin email allowlist'),
-      S.admins.list.map(x=>h('div',{cls:'row'},x,h('button',{cls:'bad',on:{click:()=>act('admin/allow',{email:x,add:false})}},'Remove'))),
-      h('div',{cls:'row'},ae,h('button',{on:{click:()=>act('admin/allow',{email:ae.value,add:true})}},'Add'))))}
-}
-load(true);setInterval(()=>load(false),5000);
-sb.auth.onAuthStateChange(()=>load(true));
-let t;const poke=()=>{clearTimeout(t);t=setTimeout(()=>load(false),150)};
-const ch=sb.channel('queue');['entries','entry_members','invites'].forEach(tb=>ch.on('postgres_changes',{event:'*',schema:'public',table:tb},poke));ch.subscribe();
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Courtside Queue</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏸</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@100..150,500..900&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body><div id="app"></div><div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="/src/main.js"></script></body>
+</html>
