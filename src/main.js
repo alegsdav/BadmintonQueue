@@ -13,6 +13,7 @@ const sb = createClient(URL, KEY);
 const RPC = {
   state: ['get_state', () => ({})], join: ['join_queue', () => ({})], joinCourt: ['join_court', b => ({ p_court: b.court, p_side: b.side })],
   queueToCourt: ['queue_to_court', b => ({ p_court: b.court, p_side: b.side })], leave: ['leave_queue', () => ({})],
+  pairMove: ['admin_pair_move', b => ({ p_first: b.first, p_second: b.second, p_dest: b.dest })],
   leavePair: ['leave_pair', () => ({})], removePair: ['admin_remove_pair', b => ({ p_entry: b.entryId })],
   invite: ['send_invite', b => ({ p_email: b.email ?? null, p_user: b.userId ?? null, p_court: b.court ?? null, p_side: b.side ?? null })],
   respond: ['respond_invite', b => ({ p_id: b.id, p_accept: b.accept })], cancel: ['cancel_invite', b => ({ p_id: b.id })],
@@ -112,7 +113,19 @@ function statusCard(me, loc) {
 }
 
 function adminCards() {
+  const singles = [...S.queue, ...S.courts.flatMap(c => [...c.a, ...c.b])].filter(e => e.members.length === 1);
+  const playerOptions = singles.map(e => {
+    const user = e.members[0];
+    const courtIndex = S.courts.findIndex(c => [...c.a, ...c.b].some(item => item.id === e.id));
+    const location = courtIndex < 0 ? 'Queue' : `Court ${courtIndex + 1}`;
+    return `<option value="${esc(user)}">${esc(N(user))} — ${location}</option>`;
+  }).join('');
   return `<section class="card"><label class="switch"><input type="checkbox" id="lb" ${S.loserBack ? 'checked' : ''}><span><b>Losers rejoin the queue</b><br><span class="mute">When off, the losing side leaves the court and must sign up again.</span></span></label></section>
+  ${singles.length >= 2 ? `<section class="card"><h3>Move two players together</h3><p class="mute" style="margin:4px 0 12px">Choose two single players to pair, then move them to the queue or a court.</p>
+    <form data-form="admin-pair" class="row"><select name="first" aria-label="First player" required><option value="">Choose first player…</option>${playerOptions}</select>
+    <select name="second" aria-label="Second player" required><option value="">Choose second player…</option>${playerOptions}</select>
+    <select name="dest" aria-label="Destination" required><option value="">Choose destination…</option><option value="q-front">Front of queue</option><option value="q-end">End of queue</option>${S.courts.map((_, i) => `<option value="c${i}">Court ${i + 1}</option>`).join('')}</select>
+    <button class="btn primary">Pair and move</button></form></section>` : ''}
   <section class="card"><h3>Admin emails</h3><p class="mute" style="margin:4px 0 12px">Only confirmed accounts with these emails get admin access.</p>
     <div class="tags">${S.admins.list.map(m => `<span class="tag">${esc(m)}<button class="x" data-act="rmadmin" data-email="${esc(m)}" aria-label="Remove ${esc(m)}">×</button></span>`).join('')}</div>
     <form data-form="allow" class="row" style="margin-top:12px"><input type="email" name="email" placeholder="admin@example.com" required><button class="btn">Add admin</button></form></section>`;
@@ -178,6 +191,10 @@ $app.addEventListener('submit', async e => {
     else if (v.court === '' || !v.side) toast('Choose a court and side for the invite.');
   }
   if (f.dataset.form === 'allow') act('allow', { email: v.email, add: true });
+  if (f.dataset.form === 'admin-pair') {
+    if (v.first === v.second) toast('Choose two different players.');
+    else if (await act('pairMove', { first: v.first, second: v.second, dest: v.dest })) toast('Players paired and moved.');
+  }
   if (f.dataset.form === 'auth') {
     authErr = authMsg = '';
     try {
