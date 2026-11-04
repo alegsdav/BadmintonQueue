@@ -13,7 +13,7 @@ const sb = createClient(URL, KEY);
 const RPC = {
   state: ['get_state', () => ({})], join: ['join_queue', () => ({})], joinCourt: ['join_court', b => ({ p_court: b.court, p_side: b.side })], leave: ['leave_queue', () => ({})],
   leavePair: ['leave_pair', () => ({})], removePair: ['admin_remove_pair', b => ({ p_entry: b.entryId })],
-  invite: ['send_invite', b => ({ p_email: b.email ?? null, p_user: b.userId ?? null })],
+  invite: ['send_invite', b => ({ p_email: b.email ?? null, p_user: b.userId ?? null, p_court: b.court ?? null, p_side: b.side ?? null })],
   respond: ['respond_invite', b => ({ p_id: b.id, p_accept: b.accept })], cancel: ['cancel_invite', b => ({ p_id: b.id })],
   win: ['report_win', b => ({ p_court: b.court, p_side: b.side })], kick: ['admin_kick', b => ({ p_user: b.userId })],
   move: ['admin_move', b => ({ p_entry: b.entryId, p_dest: b.dest })], allow: ['admin_allow', b => ({ p_email: b.email, p_add: b.add })],
@@ -60,21 +60,24 @@ function moveSel(e, cur) {
   const o = S.courts.map((_, i) => i !== cur ? `<option value="c${i}">Court ${i + 1}</option>` : '').join('');
   return `<select data-move="${e.id}" aria-label="Move"><option value="">Move to…</option>${o}<option value="q-front">Front of queue</option>${cur >= 0 ? '<option value="q-end">End of queue</option>' : ''}</select>`;
 }
-function entry(e, cur, me, loc) {
-  const team = !adm && cur < 0 && e.members.length === 1 && !isMine(e) && me && me.members.length < 2 && loc !== 'court'
-    ? `<button class="btn sm" data-act="team" data-id="${e.members[0]}">Team up</button>` : '';
+function entry(e, cur) {
   const removePair = adm && e.members.length > 1
     ? `<button class="btn sm danger" data-act="removePair" data-id="${e.id}">Remove pair</button>` : '';
-  return `<div class="entry${e.members.length > 1 ? ' pair' : ''}">${e.members.map(chip).join('')}${adm ? moveSel(e, cur) : ''}${removePair}${team}</div>`;
+  return `<div class="entry${e.members.length > 1 ? ' pair' : ''}">${e.members.map(chip).join('')}${adm ? moveSel(e, cur) : ''}${removePair}</div>`;
 }
-const half = (list, i, me, loc) => list.map(e => entry(e, i, me, loc)).join('') +
+const half = (list, i) => list.map(e => entry(e, i)).join('') +
   (list.reduce((n, e) => n + e.members.length, 0) < 2 ? '<span class="ghost">Open spot</span>' : '');
 
-function courtCard(c, i, me, loc) {
+function courtCard(c, i) {
   const live = c.a.length && c.b.length, on = [...c.a, ...c.b].some(isMine);
   return `<article class="card court-card"><header><h3>Court ${i + 1}</h3><span class="state${live ? ' live' : ''}">${live ? 'Game on' : (c.a.length || c.b.length) ? 'Waiting for opponents' : 'Open'}</span></header>
-  <div class="court">${COURT}<div class="half">${half(c.a, i, me, loc)}</div><div class="half">${half(c.b, i, me, loc)}</div></div>
+  <div class="court">${COURT}<div class="half">${half(c.a, i)}</div><div class="half">${half(c.b, i)}</div></div>
   ${live && (on || adm) ? `<div class="win"><button class="btn" data-act="win" data-court="${i}" data-side="a">Left side won</button><button class="btn" data-act="win" data-court="${i}" data-side="b">Right side won</button></div>` : ''}</article>`;
+}
+
+function invitePlacement() {
+  return `<select name="court" aria-label="Choose a court" required><option value="">Choose court…</option>${S.courts.map((_, i) => `<option value="${i}">Court ${i + 1}</option>`).join('')}</select>
+    <select name="side" aria-label="Choose a side" required><option value="">Choose side…</option><option value="a">Left side</option><option value="b">Right side</option></select>`;
 }
 
 function statusCard(me, loc) {
@@ -85,13 +88,14 @@ function statusCard(me, loc) {
   const head = !loc ? ['Ready to play?', 'Join the queue on your own, or invite a partner by email.']
     : loc === 'court' ? ['You’re on court ' + (S.courts.findIndex(c => [...c.a, ...c.b].some(isMine)) + 1), paired ? `Playing with ${mate}.` : 'Good luck out there.']
     : [pos === 1 ? 'You’re next up' : `You’re number ${pos} in line`, paired ? `Queued with ${mate}.` : 'You’ll be moved onto a court as soon as one opens.'];
+  const inviteFields = invitePlacement();
   return `<section class="card status"><div><h2>${esc(head[0])}</h2><p class="mute" style="margin:4px 0 0">${esc(head[1])}</p></div>
-    <div class="row">${!loc ? `<form data-form="join"><select name="court" aria-label="Choose a court"><option value="">Any available court</option>${S.courts.map((_, i) => `<option value="${i}">Court ${i + 1}</option>`).join('')}</select><select name="side" aria-label="Choose a side"><option value="">Choose side…</option><option value="a">Left side</option><option value="b">Right side</option></select><button class="btn primary">Join as 1 player</button></form>` : `<button class="btn danger" data-act="leave">${loc === 'court' ? 'Leave court' : 'Leave queue'}</button>`}
+    <div class="row">${!loc ? `<form data-form="join"><select name="court" aria-label="Choose a court"><option value="">Any available court</option>${S.courts.map((_, i) => `<option value="${i}">Court ${i + 1}</option>`).join('')}</select><select name="side" aria-label="Choose a side"><option value="">Choose side…</option><option value="a">Left side</option><option value="b">Right side</option></select><button class="btn primary">Join court</button></form>` : `<button class="btn danger" data-act="leave">${loc === 'court' ? 'Leave court' : 'Leave queue'}</button>`}
     ${paired ? '<button class="btn danger" data-act="leavePair">Leave with partner</button>' : ''}
-    ${!loc && waitingPlayers.length ? `<form data-form="player-invite"><select name="userId" aria-label="Choose a player to pair with" required><option value="">Choose a waiting player…</option>${waitingPlayers.map(e => `<option value="${esc(e.members[0])}">${esc(N(e.members[0]))}</option>`).join('')}</select><button class="btn">Invite to pair</button></form>` : ''}
-    ${!paired ? '<form data-form="invite"><input type="email" name="email" placeholder="Partner’s account email" required><button class="btn">Invite partner</button></form>' : ''}</div>
-    ${inc.map(i => `<div class="invite"><span><b>${esc(N(i.from))}</b> wants to pair up with you</span><span class="row"><button class="btn primary sm" data-act="accept" data-id="${i.id}">Accept</button><button class="btn sm" data-act="decline" data-id="${i.id}">Decline</button></span></div>`).join('')}
-    ${out.map(i => `<div class="invite"><span class="mute">Waiting for ${esc(N(i.to))} to accept</span><button class="btn sm" data-act="cancel" data-id="${i.id}">Cancel</button></div>`).join('')}</section>`;
+    ${loc !== 'court' && !paired && waitingPlayers.length ? `<form data-form="player-invite"><select name="userId" aria-label="Choose a player to pair with" required><option value="">Choose a waiting player…</option>${waitingPlayers.map(e => `<option value="${esc(e.members[0])}">${esc(N(e.members[0]))}</option>`).join('')}</select>${inviteFields}<button class="btn">Invite to court</button></form>` : ''}
+    ${loc !== 'court' && !paired ? `<form data-form="invite"><input type="email" name="email" placeholder="Partner’s account email" required>${inviteFields}<button class="btn">Invite to court</button></form>` : ''}</div>
+    ${inc.map(i => `<div class="invite"><span><b>${esc(N(i.from))}</b> invites you to join ${i.court === null ? 'as a pair in the queue' : `Court ${Number(i.court) + 1}, ${i.side === 'a' ? 'left' : 'right'} side`}.</span><span class="row"><button class="btn primary sm" data-act="accept" data-id="${i.id}">Accept</button><button class="btn sm" data-act="decline" data-id="${i.id}">Decline</button></span></div>`).join('')}
+    ${out.map(i => `<div class="invite"><span class="mute">Waiting for ${esc(N(i.to))} to accept${i.court === null ? '' : ` your Court ${Number(i.court) + 1}, ${i.side === 'a' ? 'left' : 'right'} side invite`}</span><button class="btn sm" data-act="cancel" data-id="${i.id}">Cancel</button></div>`).join('')}</section>`;
 }
 
 function adminCards() {
@@ -110,9 +114,9 @@ function mainView() {
     ${S.me.isAdmin ? `<div class="tabs"><button data-act="tab" data-tab="play" aria-pressed="${tab === 'play'}">Play</button><button data-act="tab" data-tab="admin" aria-pressed="${tab === 'admin'}">Admin</button></div>` : ''}
     <span class="chip"><i class="av" style="--h:${hue(S.me.id)}">${esc(ini(S.me.name))}</i><b>${esc(S.me.name)}</b></span><button class="btn sm" data-act="out">Sign out</button></div></header>
     ${adm ? '' : statusCard(me, loc)}
-    <div class="courts">${S.courts.map((c, i) => courtCard(c, i, me, loc)).join('')}</div>
+    <div class="courts">${S.courts.map((c, i) => courtCard(c, i)).join('')}</div>
     <section class="card"><h2>Waiting queue</h2><p class="mute" style="margin:4px 0 0">${waiting} ${waiting === 1 ? 'player' : 'players'} waiting. Pairs move up together; singles are matched in order.</p>
-      ${S.queue.length ? `<ol class="queue">${S.queue.map((e, i) => `<li><span class="pos">${i + 1}</span>${entry(e, -1, me, loc)}</li>`).join('')}</ol>` : '<div class="empty">Nobody’s waiting. Join to get on court.</div>'}</section>
+      ${S.queue.length ? `<ol class="queue">${S.queue.map((e, i) => `<li><span class="pos">${i + 1}</span>${entry(e, -1)}</li>`).join('')}</ol>` : '<div class="empty">Nobody’s waiting. Join to get on court.</div>'}</section>
     ${adm ? adminCards() : ''}</div>`;
 }
 
@@ -123,7 +127,7 @@ $app.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return; const d = b.dataset;
   const map = { join: () => act('join'), leave: () => act('leave'), leavePair: () => confirm('Leave your spot with your partner?') && act('leavePair'),
     removePair: () => confirm('Remove both players in this pair from their spot?') && act('removePair', { entryId: d.id }),
-    team: () => act('invite', { userId: d.id }), accept: () => act('respond', { id: d.id, accept: true }),
+    accept: () => act('respond', { id: d.id, accept: true }),
     decline: () => act('respond', { id: d.id, accept: false }), cancel: () => act('cancel', { id: d.id }), win: () => act('win', { court: +d.court, side: d.side }),
     kick: () => confirm(`Remove ${d.name} from their spot?`) && act('kick', { userId: d.id }), rmadmin: () => act('allow', { email: d.email, add: false }),
     tab: () => { tab = d.tab; render(); }, mode: () => { mode = mode === 'login' ? 'register' : 'login'; authErr = authMsg = ''; render(); },
@@ -149,9 +153,13 @@ $app.addEventListener('submit', async e => {
     else toast('Choose a side on the selected court.');
   }
   if (f.dataset.form === 'player-invite') {
-    if (await act('invite', { userId: v.userId })) toast('Invite sent');
+    if (v.court !== '' && v.side && await act('invite', { userId: v.userId, court: Number(v.court), side: v.side })) toast('Invite sent');
+    else if (v.court === '' || !v.side) toast('Choose a court and side for the invite.');
   }
-  if (f.dataset.form === 'invite') { if (await act('invite', { email: v.email })) toast('Invite sent'); }
+  if (f.dataset.form === 'invite') {
+    if (v.court !== '' && v.side && await act('invite', { email: v.email, court: Number(v.court), side: v.side })) toast('Invite sent');
+    else if (v.court === '' || !v.side) toast('Choose a court and side for the invite.');
+  }
   if (f.dataset.form === 'allow') act('allow', { email: v.email, add: true });
   if (f.dataset.form === 'auth') {
     authErr = authMsg = '';
