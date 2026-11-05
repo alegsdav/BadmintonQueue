@@ -3,3 +3,6 @@ dist
 .env
 .env.local
 .vercel
+# database schema and functions live only in the Supabase project
+supabase/
+*.sql
