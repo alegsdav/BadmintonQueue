@@ -15,7 +15,10 @@ button{font:inherit;color:inherit}
 .err:empty,.mute:empty{display:none}
 
 /* brand */
-.brand{display:flex;align-items:center;gap:10px;height:37px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.signout{min-height:40px;padding:6px 12px;background:var(--card);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink);font-size:14px;font-weight:600;cursor:pointer;flex-shrink:0}
+.signout:active{transform:translate(2px,2px);box-shadow:none}
+.brand{display:flex;align-items:center;gap:10px;height:37px;min-width:0}
 .logo{width:37px;height:37px;display:block;flex-shrink:0}
 .brand span{font-family:var(--display);font-size:26px;font-weight:600;letter-spacing:.5px}
 /* sign-in mark: the racket at 2x with strings, as on the logo sheet */
@@ -36,10 +39,18 @@ button{font:inherit;color:inherit}
 .art svg{display:block;width:100%;height:auto}
 .tag{position:absolute;transform:translateX(-50%);background:#fff;color:var(--ink);font-size:11px;font-weight:600;line-height:1;padding:3px 6px;white-space:nowrap}
 .tag.me{background:var(--orange)}
+/* preview of me on the side I picked, before I join */
+.tag.preview{outline:2px dashed var(--ink);outline-offset:1px;animation:blink 1s steps(2) infinite}
+.ghost{animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.45}}
 .open{position:absolute;width:30px;height:30px;transform:translate(-50%,-50%);border:2px dashed var(--cream);background:rgba(255,248,231,.12)}
 .open::before,.open::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
 .open::before{height:16px;border-left:2px dotted var(--cream)}
 .open::after{width:16px;border-top:2px dotted var(--cream)}
+@media (hover:hover) and (pointer:fine){
+  .open:hover{background:rgba(255,248,231,.45);border-style:solid;box-shadow:0 0 0 2px var(--ink)}
+  .open:hover::before,.open:hover::after{border-color:var(--ink);border-style:solid}
+}
 
 /* up next */
 .next{display:flex;flex-direction:column;gap:4px}
@@ -63,8 +74,9 @@ button{font:inherit;color:inherit}
 .cta:active{transform:translate(2px,2px);box-shadow:2px 2px 0 var(--ink)}
 /* solid rather than translucent, so scrolled content never shows through the fixed button */
 .cta[aria-disabled=true]{--fade:color-mix(in srgb,var(--ink) 35%,var(--bg));background:color-mix(in srgb,var(--orange) 35%,var(--bg));color:var(--fade);border-color:var(--fade);box-shadow:4px 4px 0 var(--fade);cursor:default;transform:none}
-.results{flex-direction:column;align-items:center}
-.results .cta{width:100%;flex:none}
+.cta.alt{background:var(--card)}
+.bar.stack{flex-direction:column;align-items:center}
+.bar.stack .cta{width:100%;flex:none}
 
 /* you're up */
 .up{position:fixed;inset:0;z-index:40;margin:0;border:0;background:var(--court);color:var(--cream);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;cursor:pointer;animation:pop .3s steps(3) both}
@@ -102,7 +114,7 @@ button{font:inherit;color:inherit}
   .row{height:72px;gap:18px;font-size:18px;border-bottom-width:2px}
   .n{width:44px;height:44px;font-size:22px}
   .cta{font-size:22px;min-height:56px}
-  .results{flex-direction:row;justify-content:center}
-  .results .cta{width:auto;flex:1 1 0}
+  .bar.stack{flex-direction:row;justify-content:center}
+  .bar.stack .cta{width:auto;flex:1 1 0}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import './style.css';
-import { buttonState, courtSlots, isLive, justCalledUp, myPlace, nameOf, queueRows, spotsLabel, validSelection, waitingLabel } from './logic.js';
+import { buttonState, courtSlots, isLive, justCalledUp, myPlace, nameOf, queueRows, resolveSide, spotsLabel, validSelection, waitingLabel } from './logic.js';
 import { courtArt, esc, racket } from './pixel.js';
 
 const URL = import.meta.env.VITE_SUPABASE_URL, KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -15,6 +15,8 @@ const sb = createClient(URL, KEY);
 const RPC = {
   state: ['get_state', () => ({})],
   join: ['join_queue', b => ({ p_court: b.court })],
+  joinCourt: ['join_court', b => ({ p_court: b.court, p_side: b.side })],
+  leave: ['leave_queue', () => ({})],
   moveQueue: ['move_queue', b => ({ p_court: b.court })],
   joinTeam: ['join_team', b => ({ p_entry: b.entryId })],
   win: ['report_win', b => ({ p_court: b.court, p_side: b.side })],
@@ -22,7 +24,7 @@ const RPC = {
 const api = async (k, b = {}) => { const [fn, m] = RPC[k]; const { data, error } = await sb.rpc(fn, m(b)); if (error) throw new Error(error.message); return data; };
 
 let S = null, mode = 'login', authErr = '', authMsg = '', booted = false, busy = false;
-let sel = null;          // {kind:'court', court} | {kind:'entry', id} | null
+let sel = null;          // {kind:'court', court, side} | {kind:'entry', id} | null
 let place;               // where I was at the last load (undefined until the first load)
 let calledUp = null;     // court number for the "you're up" screen, or null
 
@@ -41,9 +43,16 @@ async function load(force) {
   booted = true;
   if (force || !/INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || '')) render();
 }
+// "Leave & join" is two existing RPCs in a row: leave your spot, then take the new court side (or its queue).
+async function run(k, b) {
+  if (k !== 'switchCourt') return api(k, b);
+  await api('leave');
+  try { await api(b.side ? 'joinCourt' : 'join', b); }
+  catch (e) { throw new Error(`You left your spot, but couldn't join Court ${b.court + 1}: ${e.message}`); }
+}
 async function act(k, b) {
   if (busy) return; busy = true;
-  try { await api(k, b); sel = null; } catch (e) { toast(e.message); } finally { busy = false; }
+  try { await run(k, b); sel = null; } catch (e) { toast(e.message); } finally { busy = false; }
   await load(true);
 }
 
@@ -69,8 +78,9 @@ function courtLabel(c, slots) {
   return `Court ${c + 1}: ${team(slots.a)} versus ${team(slots.b)}. ${spotsLabel(S, c) || 'Full'}. ${waitingLabel(S, c)}.`;
 }
 
-function courtBlock(court, c) {
-  const slots = courtSlots(S, c), spots = spotsLabel(S, c);
+function courtBlock(court, c, preview) {
+  const slots = courtSlots(S, c, preview), spots = spotsLabel(S, c);
+  const previewSide = preview?.court === c ? preview.side : null;
   const picked = sel?.kind === 'court' && sel.court === c;
   const rows = queueRows(S, c);
   const list = rows.length ? `<div class="queue" data-scroll="${c}" tabindex="0" aria-label="Court ${c + 1} queue">${rows.map(r => {
@@ -80,19 +90,19 @@ function courtBlock(court, c) {
   return `<section class="court-col">
     <button type="button" class="court${picked ? ' sel' : ''}" data-act="pickCourt" data-court="${c}" aria-pressed="${picked}" aria-label="${esc(courtLabel(c, slots))}">
       <span class="court-head"><span class="title">Court ${c + 1}${S.courtModes?.[c] === 'singles' ? ' <small>Singles</small>' : ''}</span>${spots ? `<span class="spots">${spots}</span>` : ''}</span>
-      ${courtArt(slots, id => nameOf(S, id), isLive(court), S.me.id)}
+      ${courtArt(slots, id => nameOf(S, id), isLive(court), S.me.id, previewSide)}
     </button>
     <div class="next"><div class="next-head"><span>Up next</span><span class="mute">${waitingLabel(S, c)}</span></div>${list}</div>
   </section>`;
 }
 
-function actionBar() {
-  const st = buttonState(S, sel);
-  if (st.results) {
-    return `<div class="bar results">${st.results.map(r => `<button type="button" class="cta" data-act="do" data-k="${r.action.k}" data-b="${esc(JSON.stringify(r.action.b))}">${esc(r.label)}</button>`).join('')}</div>`;
-  }
-  const b = st.action ? ` data-act="do" data-k="${st.action.k}" data-b="${esc(JSON.stringify(st.action.b))}"` : '';
-  return `<div class="bar"><button type="button" class="cta"${b} aria-disabled="${st.disabled}">${esc(st.label)}</button></div>`;
+function actionBar(st) {
+  if (!st) return '';
+  const button = btn => {
+    const a = btn.action ? ` data-act="do" data-k="${btn.action.k}" data-b="${esc(JSON.stringify(btn.action.b))}"` : '';
+    return `<button type="button" class="cta${btn.secondary ? ' alt' : ''}"${a} aria-disabled="${btn.disabled}">${esc(btn.label)}</button>`;
+  };
+  return `<div class="bar${st.buttons.length > 1 ? ' stack' : ''}">${st.buttons.map(button).join('')}</div>`;
 }
 
 function upView() {
@@ -102,10 +112,21 @@ function upView() {
 }
 
 function mainView() {
-  return `<div class="board${sel ? ' has-sel' : ''}"><header class="top">${WORDMARK}</header>
-    <div class="courts">${S.courts.map(courtBlock).join('')}</div>
+  const st = buttonState(S, sel);
+  return `<div class="board${sel ? ' has-sel' : ''}"><header class="top">${WORDMARK}<button type="button" class="signout" data-act="out">Sign out</button></header>
+    <div class="courts">${S.courts.map((court, c) => courtBlock(court, c, st?.preview)).join('')}</div>
     ${sel ? '<button type="button" class="scrim" data-act="clear" aria-label="Close selection"></button>' : ''}
-    ${actionBar()}</div>${upView()}`;
+    ${actionBar(st)}</div>${upView()}`;
+}
+
+/** Which half of the court was tapped: a "+" spot's own side, else the half under the pointer (null for keyboard). */
+function tappedSide(e, courtButton) {
+  const spot = e.target.closest('.open');
+  if (spot) return spot.dataset.side;
+  if (!e.detail) return null;
+  const art = courtButton.querySelector('.art')?.getBoundingClientRect();
+  if (!art) return null;
+  return e.clientX < art.left + art.width / 2 ? 'a' : 'b';
 }
 
 function render() {
@@ -116,14 +137,22 @@ function render() {
 }
 
 // ---- events ----
+/** A tap on the dimmed scrim selects the court or queue row under it, so switching takes one tap. */
+function underScrim(e) {
+  return document.elementsFromPoint(e.clientX, e.clientY).map(el => el.closest('[data-act="pickCourt"],[data-act="pickEntry"]')).find(Boolean) || null;
+}
+
 $app.addEventListener('click', e => {
-  const b = e.target.closest('[data-act]'); if (!b) return; const d = b.dataset;
+  let b = e.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'clear') b = underScrim(e) || b;
+  const d = b.dataset;
   const map = {
-    pickCourt: () => { const c = +d.court; sel = sel?.kind === 'court' && sel.court === c ? null : { kind: 'court', court: c }; render(); },
+    pickCourt: () => { const c = +d.court; sel = { kind: 'court', court: c, side: resolveSide(S, c, tappedSide(e, b)) }; render(); },
     pickEntry: () => { sel = sel?.kind === 'entry' && sel.id === d.id ? null : { kind: 'entry', id: d.id }; render(); },
     clear: () => { sel = null; render(); },
     do: () => act(d.k, JSON.parse(d.b)),
     closeUp: () => { calledUp = null; render(); },
+    out: async () => { await sb.auth.signOut(); S = null; sel = null; place = undefined; calledUp = null; render(); },
     mode: () => { mode = mode === 'login' ? 'register' : 'login'; authErr = authMsg = ''; render(); },
   };
   map[d.act]?.();

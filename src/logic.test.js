@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { buttonState, courtQueue, courtSlots, justCalledUp, myPlace, openSpots, queueRows, spotsLabel, validSelection, waitingLabel } from './logic.js';
+import { buttonState, courtQueue, courtSlots, justCalledUp, myPlace, openSpots, queueRows, resolveSide, spotsLabel, validSelection, waitingLabel } from './logic.js';
 
 const names = { me: 'Alex', maya: 'Maya', jon: 'Jon', priya: 'Priya', sam: 'Sam', ava: 'Ava', leo: 'Leo', noor: 'Noor', kai: 'Kai' };
 const e = (id, members, queueCourt = null) => ({ id, members, queueCourt, streak: 0 });
 
-/** Court 1 full (Maya & Jon vs Priya & Sam), Court 2 has Kai alone; queues per court. */
+/** Court 1 full (Maya & Jon vs Priya & Sam), Court 2 has Kai alone on the left; queues per court. */
 function state(overrides = {}) {
   return {
     me: { id: 'me', name: 'Alex', isAdmin: false },
@@ -19,6 +19,9 @@ function state(overrides = {}) {
     ...overrides,
   };
 }
+const court = (c, side) => ({ kind: 'court', court: c, side });
+const labels = st => st.buttons.map(b => b.label);
+const meOnCourt1 = () => state({ courts: [{ a: [e('x', ['me', 'jon'], 0)], b: [e('y', ['priya', 'sam'], 0)] }, { a: [e('c2a', ['kai'], 1)], b: [] }] });
 
 describe('court queues', () => {
   test('each court lists only its own queue, plus legacy any-court entries', () => {
@@ -48,7 +51,7 @@ describe('court queues', () => {
   });
 });
 
-describe('court slots', () => {
+describe('court slots and sides', () => {
   test('doubles sides have two slots, open ones are null', () => {
     expect(courtSlots(state(), 1)).toEqual({ a: ['kai', null], b: [null, null] });
     expect(openSpots(state(), 1)).toBe(3);
@@ -61,12 +64,25 @@ describe('court slots', () => {
     expect(courtSlots(S, 1)).toEqual({ a: ['kai'], b: [null] });
     expect(spotsLabel(S, 1)).toBe('1 spot open');
   });
+
+  test('a preview puts me in the first open slot of the picked side', () => {
+    expect(courtSlots(state(), 1, { court: 1, side: 'b' })).toEqual({ a: ['kai', null], b: ['me', null] });
+    expect(courtSlots(state(), 1, { court: 1, side: 'a' })).toEqual({ a: ['kai', 'me'], b: [null, null] });
+    expect(courtSlots(state(), 0, { court: 1, side: 'a' }).a).toEqual(['maya', 'jon']);
+  });
+
+  test('the clicked side is used when it has room, otherwise the other side, otherwise the queue', () => {
+    const S = state({ courts: [{ a: [e('c1a', ['maya', 'jon'], 0)], b: [e('c1b', ['priya'], 0)] }, { a: [], b: [] }] });
+    expect(resolveSide(S, 0, 'b')).toBe('b');
+    expect(resolveSide(S, 0, 'a')).toBe('b');
+    expect(resolveSide(S, 1, null)).toBe('a');
+    expect(resolveSide(state(), 0, 'a')).toBeNull();
+  });
 });
 
 describe('myPlace', () => {
   test('finds me on a court', () => {
-    const S = state({ courts: [{ a: [e('x', ['me', 'jon'], 0)], b: [e('y', ['priya'], 0)] }, { a: [], b: [] }] });
-    expect(myPlace(S)).toMatchObject({ where: 'court', court: 0, side: 'a' });
+    expect(myPlace(meOnCourt1())).toMatchObject({ where: 'court', court: 0, side: 'a' });
   });
 
   test('gives my position within my court queue', () => {
@@ -77,71 +93,85 @@ describe('myPlace', () => {
   test('null when not signed up', () => expect(myPlace(state())).toBeNull());
 });
 
-describe('bottom button', () => {
-  test('nothing selected shows a disabled Join', () => {
-    expect(buttonState(state(), null)).toEqual({ label: 'Join', disabled: true });
+describe('bottom buttons', () => {
+  test('no bar until something is selected', () => {
+    expect(buttonState(state(), null)).toBeNull();
   });
 
   test('a full court offers its queue', () => {
-    expect(buttonState(state(), { kind: 'court', court: 0 })).toEqual({ label: 'Join Court 1 queue', disabled: false, action: { k: 'join', b: { court: 0 } } });
+    expect(buttonState(state(), court(0, 'a'))).toEqual({ buttons: [{ label: 'Join Court 1 queue', disabled: false, action: { k: 'join', b: { court: 0 } } }], preview: null });
   });
 
-  test('a court with an open spot and nobody waiting offers the court itself', () => {
-    expect(buttonState(state(), { kind: 'court', court: 1 })).toMatchObject({ label: 'Join Court 2', action: { k: 'join', b: { court: 1 } } });
+  test('an open court joins the clicked side and previews me there', () => {
+    expect(buttonState(state(), court(1, 'b'))).toEqual({
+      buttons: [{ label: 'Join Court 2', disabled: false, action: { k: 'joinCourt', b: { court: 1, side: 'b' } } }],
+      preview: { court: 1, side: 'b' },
+    });
   });
 
-  test('already in this queue: disabled with my position', () => {
-    const S = state({ queue: [e('q1', ['ava'], 0), e('mine', ['me'], 0)] });
-    expect(buttonState(S, { kind: 'court', court: 0 })).toEqual({ label: "You're in line · #2", disabled: true });
+  test('my own court, on it or in its queue, offers Leave', () => {
+    const queued = state({ queue: [e('q1', ['ava'], 0), e('mine', ['me'], 0)] });
+    expect(labels(buttonState(queued, court(0)))).toEqual(['Leave']);
+    const S = meOnCourt1();
+    S.courts[0].b = [];
+    expect(buttonState(S, court(0))).toEqual({ buttons: [{ label: 'Leave', disabled: false, action: { k: 'leave', b: {} } }], preview: null });
   });
 
-  test('waiting elsewhere: moves me to this court queue', () => {
+  test('on a live court I get both results plus a secondary Leave', () => {
+    const st = buttonState(meOnCourt1(), court(0));
+    expect(labels(st)).toEqual(['Alex & Jon won', 'Priya & Sam won', 'Leave']);
+    expect(st.buttons[0].action).toEqual({ k: 'win', b: { court: 0, side: 'a' } });
+    expect(st.buttons[2].secondary).toBe(true);
+  });
+
+  test('on a court, another court offers Leave & join, with a side when there is room', () => {
+    expect(buttonState(meOnCourt1(), court(1, 'b'))).toEqual({
+      buttons: [{ label: 'Leave & join Court 2', disabled: false, action: { k: 'switchCourt', b: { court: 1, side: 'b' } } }],
+      preview: { court: 1, side: 'b' },
+    });
+  });
+
+  test('waiting elsewhere, a full court offers Leave & join its queue', () => {
     const S = state({ queue: [e('mine', ['me'], 1)] });
-    expect(buttonState(S, { kind: 'court', court: 0 })).toMatchObject({ label: 'Join Court 1 queue', action: { k: 'moveQueue', b: { court: 0 } } });
+    expect(buttonState(S, court(0, 'a'))).toEqual({ buttons: [{ label: 'Leave & join Court 1 queue', disabled: false, action: { k: 'switchCourt', b: { court: 0, side: null } } }], preview: null });
   });
 
-  test('a team cannot move to a singles court', () => {
-    const S = state({ courtModes: ['doubles', 'singles'], queue: [e('mine', ['me', 'noor'], 0)] });
-    expect(buttonState(S, { kind: 'court', court: 1 })).toEqual({ label: 'Court 2 is singles', disabled: true });
+  test('a waiting team moves together instead of leaving', () => {
+    const S = state({ queue: [e('mine', ['me', 'noor'], 1)] });
+    expect(buttonState(S, court(0))).toMatchObject({ buttons: [{ label: 'Move team to Court 1', action: { k: 'moveQueue', b: { court: 0 } } }] });
+    const singles = state({ courtModes: ['doubles', 'singles'], queue: [e('mine', ['me', 'noor'], 0)] });
+    expect(labels(buttonState(singles, court(1)))).toEqual(['Court 2 is singles']);
   });
 
-  test('players on a live court get the two result buttons, named by team', () => {
-    const S = state({ courts: [{ a: [e('x', ['me', 'jon'], 0)], b: [e('y', ['priya', 'sam'], 0)] }, { a: [], b: [] }] });
-    expect(buttonState(S, { kind: 'court', court: 0 })).toEqual({ results: [
-      { label: 'Alex & Jon won', action: { k: 'win', b: { court: 0, side: 'a' } } },
-      { label: 'Priya & Sam won', action: { k: 'win', b: { court: 0, side: 'b' } } },
-    ] });
-  });
-
-  test('admins get result buttons on any live court', () => {
+  test('admins get result buttons on any live court, with their own action after', () => {
     const S = state({ me: { id: 'me', name: 'Alex', isAdmin: true } });
-    expect(buttonState(S, { kind: 'court', court: 0 }).results).toHaveLength(2);
+    const st = buttonState(S, court(0));
+    expect(labels(st)).toEqual(['Maya & Jon won', 'Priya & Sam won', 'Join Court 1 queue']);
+    expect(st.buttons[2].secondary).toBe(true);
   });
 
   test('non-admins not on the court never see results', () => {
-    expect(buttonState(state(), { kind: 'court', court: 0 }).results).toBeUndefined();
-  });
-
-  test('on another court: disabled', () => {
-    const S = state({ courts: [{ a: [e('x', ['me', 'jon'], 0)], b: [] }, { a: [e('c2a', ['kai'], 1)], b: [] }] });
-    expect(buttonState(S, { kind: 'court', court: 1 })).toEqual({ label: "You're on Court 1", disabled: true });
+    expect(labels(buttonState(state(), court(0)))).toEqual(['Join Court 1 queue']);
   });
 
   test('tapping a single in line offers Join team', () => {
-    expect(buttonState(state(), { kind: 'entry', id: 'q2' })).toEqual({ label: 'Join team', disabled: false, action: { k: 'joinTeam', b: { entryId: 'q2' } } });
+    expect(buttonState(state(), { kind: 'entry', id: 'q2' })).toEqual({ buttons: [{ label: 'Join team', disabled: false, action: { k: 'joinTeam', b: { entryId: 'q2' } } }], preview: null });
   });
 
-  test('a full team, myself, or a singles queue cannot be joined', () => {
-    expect(buttonState(state(), { kind: 'entry', id: 'q1' })).toEqual({ label: 'Team is full', disabled: true });
-    const mine = state({ queue: [e('mine', ['me'], 0)] });
-    expect(buttonState(mine, { kind: 'entry', id: 'mine' })).toEqual({ label: "That's you · #1", disabled: true });
+  test('tapping my own row offers Leave', () => {
+    const S = state({ queue: [e('mine', ['me'], 0)] });
+    expect(labels(buttonState(S, { kind: 'entry', id: 'mine' }))).toEqual(['Leave']);
+  });
+
+  test('a full team or a singles queue cannot be joined', () => {
+    expect(labels(buttonState(state(), { kind: 'entry', id: 'q1' }))).toEqual(['Team is full']);
     const singles = state({ courtModes: ['doubles', 'singles'], queue: [e('s1', ['noor'], 1)] });
-    expect(buttonState(singles, { kind: 'entry', id: 's1' })).toEqual({ label: 'Singles queue', disabled: true });
+    expect(buttonState(singles, { kind: 'entry', id: 's1' }).buttons[0]).toEqual({ label: 'Singles queue', disabled: true });
   });
 
   test('a player with a partner cannot join another team', () => {
     const S = state({ queue: [e('q2', ['noor'], 0), e('mine', ['me', 'kai'], 0)] });
-    expect(buttonState(S, { kind: 'entry', id: 'q2' })).toEqual({ label: 'You already have a partner', disabled: true });
+    expect(labels(buttonState(S, { kind: 'entry', id: 'q2' }))).toEqual(['You already have a partner']);
   });
 });
 

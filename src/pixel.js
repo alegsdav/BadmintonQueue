@@ -54,18 +54,20 @@ const pct = (v, total) => `${((v / total) * 100).toFixed(1)}%`;
  * @param {(id: string) => string} nameOf
  * @param {boolean} live a game is in play (draws the shuttle)
  * @param {string} meId the signed-in player, whose tag is highlighted
+ * @param {'a'|'b'|null} previewSide side where the signed-in player is drawn as a not-yet-joined preview
  */
-export function courtArt(slots, nameOf, live, meId) {
+export function courtArt(slots, nameOf, live, meId, previewSide = null) {
   const cap = slots.a.length;
   let sprites = '', overlays = '';
   for (const side of ['a', 'b']) {
     slots[side].forEach((id, i) => {
       const [x, y] = SLOTS[cap][side][i];
       if (id) {
-        sprites += sprite([x, y], side, id);
-        overlays += `<span class="tag${id === meId ? ' me' : ''}" style="left:${pct(x + 1, 64)};top:${pct(y + 5.6, 30)}">${esc(nameOf(id))}</span>`;
+        const mine = id === meId, preview = mine && side === previewSide;
+        sprites += preview ? `<g class="ghost">${sprite([x, y], side, id)}</g>` : sprite([x, y], side, id);
+        overlays += `<span class="tag${mine ? ' me' : ''}${preview ? ' preview' : ''}" style="left:${pct(x + 1, 64)};top:${pct(y + 5.6, 30)}">${esc(nameOf(id))}</span>`;
       } else {
-        overlays += `<span class="open" style="left:${pct(x + 1, 64)};top:${pct(y + 2.5, 30)}" aria-hidden="true"></span>`;
+        overlays += `<span class="open" data-side="${side}" style="left:${pct(x + 1, 64)};top:${pct(y + 2.5, 30)}" aria-hidden="true"></span>`;
       }
     });
   }
