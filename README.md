@@ -7,10 +7,18 @@ Winner-stays doubles, pairs or singles, admin allowlist by email.
     npm install
     cp .env.example .env.local     # fill in your Supabase URL + anon key
     npm run dev                    # http://localhost:5173
+    npm test                       # view logic + database functions (in-memory Postgres, never the live project)
+
+Try the board without touching real data: `npm run dev`, then open http://localhost:5173/?mock.
+It runs the real schema in your browser (PGlite) with sample players, signed in as an admin.
 
 ## Supabase
-The database schema and functions live only in the Supabase project; this repo holds no SQL.
-Make database changes in the Supabase dashboard (SQL Editor).
+The live Supabase project is what runs; `supabase/` keeps a copy of it in the repo:
+- `supabase/schema.sql`: snapshot of the live database (tables, functions, security), taken 2026-11-06.
+- `supabase/migrations/`: changes made after that snapshot, run in filename order in **SQL Editor**.
+
+When you change a function in the dashboard, add a migration file here too so the repo stays in step.
+New project from scratch: run `schema.sql` (change `you@example.com` to your email first), then each migration.
 
 1. **Authentication -> Providers -> Email**: keep "Confirm email" ON.
 2. **Authentication -> URL Configuration**: Site URL = your Vercel URL; add `http://localhost:5173` as a redirect URL for local dev.
@@ -27,10 +35,20 @@ Add two Environment Variables in Project Settings: `VITE_SUPABASE_URL` and `VITE
 - Winners stay on, but a team that has played 3 straight matches comes off after the 3rd even if it wins (the losers stay). Players on that court, or admins, report the result.
 - When you move from a queue onto a court, the screen turns green: "You're up, baddie!"
 
+## Admins
+- Who is an admin: anyone whose confirmed sign-in email is in the `admin_emails` table.
+  Add or remove them in the app (**Admin -> Settings**), or in the dashboard (Table Editor -> `admin_emails`).
+- **Admin** in the header turns on admin mode. Drag a player on court, or a spot in line:
+  - onto a side with room: they go there (a player leaves their partner; a team in line moves together)
+  - onto another player: the two swap places, on court or in line
+  - into a court's queue: dropped just ahead of the row you let go on, or at the end
+  - into the bin that appears at the bottom: removed
+- On a phone, press and hold a name before dragging; a quick swipe still scrolls.
+- Admins can still tap any live court to report its result, and toggle "Losers rejoin the queue" in Settings.
+
 ## Settings (Supabase dashboard, table `settings`)
 - More courts: `courts_count`.
 - Singles courts: `singles_courts` holds the court indexes (0 = Court 1) that play singles, e.g. `{1}` for Court 2.
 - Winner cap: `win_cap` (default 3).
 - Losers rejoin their court's queue: `loser_back`.
-- Admins: add their email to the `admin_emails` table.
 - All writes go through database functions; clients cannot edit tables directly, so the rules hold even if someone tampers with the page.

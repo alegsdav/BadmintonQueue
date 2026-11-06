@@ -65,7 +65,7 @@ export function courtArt(slots, nameOf, live, meId, previewSide = null) {
       if (id) {
         const mine = id === meId, preview = mine && side === previewSide;
         sprites += preview ? `<g class="ghost">${sprite([x, y], side, id)}</g>` : sprite([x, y], side, id);
-        overlays += `<span class="tag${mine ? ' me' : ''}${preview ? ' preview' : ''}" style="left:${pct(x + 1, 64)};top:${pct(y + 5.6, 30)}">${esc(nameOf(id))}</span>`;
+        overlays += `<span class="tag${mine ? ' me' : ''}${preview ? ' preview' : ''}" data-user="${esc(id)}" style="left:${pct(x + 1, 64)};top:${pct(y + 5.6, 30)}">${esc(nameOf(id))}</span>`;
       } else {
         overlays += `<span class="open" data-side="${side}" style="left:${pct(x + 1, 64)};top:${pct(y + 2.5, 30)}" aria-hidden="true"></span>`;
       }

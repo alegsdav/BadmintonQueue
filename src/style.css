@@ -119,3 +119,65 @@ button{font:inherit;color:inherit}
   .bar.stack .cta{width:auto;flex:1 1 0}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---- admin ---- */
+.top-actions{display:flex;gap:8px;flex-shrink:0}
+.signout.on{background:var(--ink);color:var(--cream)}
+.chip-btn{min-height:40px;padding:6px 12px;background:var(--card);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink);font-size:14px;font-weight:600;cursor:pointer;flex-shrink:0}
+.chip-btn:active{transform:translate(2px,2px);box-shadow:none}
+.admin-strip{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;background:var(--ink);color:var(--cream)}
+.admin-strip p{margin:0;font-size:13px;line-height:1.35}
+.admin-strip .chip-btn{color:var(--ink)}
+
+/* draggable things: a grab cursor, no text selection or iOS callout on a press and hold */
+.admin .tag:not(.preview),.admin .row{cursor:grab;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.admin .tag:not(.preview){padding:5px 8px;font-size:12px;outline:2px solid var(--ink)}
+.admin .next{min-height:88px}
+.dragging,.dragging *{cursor:grabbing!important}
+.dragging .bar{display:none}
+.drag-ghost{position:fixed;left:0;top:0;z-index:50;pointer-events:none;margin:-22px 0 0 12px;padding:6px 10px;background:var(--orange);color:var(--ink);border:2px solid var(--ink);box-shadow:var(--shadow);font-weight:700;font-size:14px;white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis}
+
+/* drop highlights */
+.court .art::after{content:'';position:absolute;top:0;bottom:0;pointer-events:none}
+.court[data-drop=a] .art::after{left:0;right:50%;background:rgba(255,248,231,.35);outline:3px dashed var(--cream);outline-offset:-6px}
+.court[data-drop=b] .art::after{left:50%;right:0;background:rgba(255,248,231,.35);outline:3px dashed var(--cream);outline-offset:-6px}
+.tag.drop-on{background:var(--orange);outline:3px solid var(--cream);transform:translateX(-50%) scale(1.15)}
+.row.drop-on{box-shadow:inset 0 4px 0 var(--orange)}
+.next.drop-on{outline:3px dashed var(--orange);outline-offset:4px}
+.next:has(.row.drop-on){outline:none}
+
+.bin{display:none;position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:45;max-width:420px;margin:0 auto;min-height:64px;align-items:center;justify-content:center;background:var(--card);color:var(--err);border:3px dashed var(--err);font-family:var(--display);font-size:20px;font-weight:600}
+.dragging .bin{display:flex}
+.bin.drop-on{background:var(--err);color:var(--cream);border-style:solid}
+
+/* settings sheet */
+.sheet-wrap{position:fixed;inset:0;z-index:35;display:grid;place-items:center;padding:16px}
+.sheet-wrap .scrim{z-index:0}
+.sheet{position:relative;z-index:1;width:min(100%,460px);max-height:calc(100svh - 32px);overflow-y:auto}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sheet h2{font-family:var(--display);font-size:26px;margin:0}
+.sheet h3{font-family:var(--display);font-size:18px;margin:0}
+.switch{display:flex;gap:12px;align-items:flex-start;cursor:pointer}
+.panel .switch{display:flex;color:var(--ink);font-size:15px;font-weight:400}
+.switch input{width:22px;height:22px;margin:2px 0 0;flex-shrink:0;accent-color:var(--orange)}
+.switch span{display:grid;gap:2px}
+.switch .mute{font-size:13px}
+.admins{display:grid;gap:8px;border-top:2px solid var(--rule);padding-top:14px}
+.admins ul{list-style:none;margin:0;padding:0;display:grid}
+.admins li{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--rule);min-height:44px}
+.admins li span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.admins .link{min-height:40px;color:var(--err)}
+.panel form.add{display:flex;gap:8px}
+.add input{flex:1}
+.panel .add .cta{width:auto;flex:none;margin:0;min-height:48px;font-size:18px}
+
+@media (min-width:900px){
+  .admin-strip p{font-size:14px}
+  .admin .tag:not(.preview){font-size:14px;padding:6px 10px}
+}
+/* two header buttons for admins: keep the wordmark clear on narrow phones */
+@media (max-width:420px){
+  .brand span{font-size:22px}
+  .top-actions{gap:6px}
+  .top-actions .signout{padding:6px 9px;font-size:13px}
+}

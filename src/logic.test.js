@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { buttonState, courtQueue, courtSlots, justCalledUp, myPlace, openSpots, queueRows, resolveSide, spotsLabel, validSelection, waitingLabel } from './logic.js';
+import { buttonState, courtQueue, dropAction, courtSlots, justCalledUp, myPlace, openSpots, queueRows, resolveSide, spotsLabel, validSelection, waitingLabel } from './logic.js';
 
 const names = { me: 'Alex', maya: 'Maya', jon: 'Jon', priya: 'Priya', sam: 'Sam', ava: 'Ava', leo: 'Leo', noor: 'Noor', kai: 'Kai' };
 const e = (id, members, queueCourt = null) => ({ id, members, queueCourt, streak: 0 });
@@ -186,5 +186,63 @@ describe('selection and alerts', () => {
     expect(justCalledUp({ where: 'queue' }, { where: 'court' })).toBe(true);
     expect(justCalledUp(null, { where: 'court' })).toBe(false);
     expect(justCalledUp({ where: 'court' }, { where: 'court' })).toBe(false);
+  });
+});
+
+describe('admin drops', () => {
+  // Court 1: Maya & Jon (team) vs Priya & Sam (team). Court 2: Kai alone on the left. Court 1 queue: Ava & Leo, Noor.
+  const S = state();
+  const player = user => ({ kind: 'player', user });
+  const entry = id => ({ kind: 'entry', id });
+
+  test('a court player onto an open side moves just them', () => {
+    expect(dropAction(S, player('jon'), { kind: 'side', court: 1, side: 'b' }))
+      .toEqual({ k: 'place', b: { court: 1, side: 'b', userId: 'jon' }, msg: 'Moved Jon to Court 2' });
+  });
+
+  test('a team in line onto an open side moves together, if the side has room for both', () => {
+    expect(dropAction(S, entry('q1'), { kind: 'side', court: 1, side: 'b' }))
+      .toEqual({ k: 'place', b: { court: 1, side: 'b', entryId: 'q1' }, msg: 'Moved Ava & Leo to Court 2' });
+    expect(dropAction(S, entry('q1'), { kind: 'side', court: 1, side: 'a' })).toEqual({ error: 'That side of Court 2 has no room for a team.' });
+  });
+
+  test('a full side asks for a swap instead; the same side does nothing', () => {
+    expect(dropAction(S, entry('q2'), { kind: 'side', court: 0, side: 'a' })).toEqual({ error: 'That side is full. Drop onto a player to swap them.' });
+    expect(dropAction(S, player('maya'), { kind: 'side', court: 0, side: 'a' })).toBeNull();
+  });
+
+  test('onto another player swaps the two; a teammate or a whole team does not', () => {
+    expect(dropAction(S, player('jon'), player('priya'))).toEqual({ k: 'swap', b: { a: 'jon', b: 'priya' }, msg: 'Swapped Jon and Priya' });
+    expect(dropAction(S, entry('q2'), player('kai'))).toEqual({ k: 'swap', b: { a: 'noor', b: 'kai' }, msg: 'Swapped Noor and Kai' });
+    expect(dropAction(S, player('maya'), player('jon'))).toBeNull();
+    expect(dropAction(S, entry('q1'), player('kai')).error).toMatch(/one player at a time/);
+  });
+
+  test('into a queue: before a row, or at the end', () => {
+    expect(dropAction(S, entry('q2'), { kind: 'row', court: 0, id: 'q1' }))
+      .toEqual({ k: 'queue', b: { court: 0, before: 'q1', entryId: 'q2' }, msg: 'Moved Noor in line for Court 1' });
+    expect(dropAction(S, player('kai'), { kind: 'queueEnd', court: 0 }))
+      .toEqual({ k: 'queue', b: { court: 0, before: null, userId: 'kai' }, msg: 'Moved Kai in line for Court 1' });
+  });
+
+  test('a drop that leaves the line as it is does nothing', () => {
+    expect(dropAction(S, entry('q1'), { kind: 'row', court: 0, id: 'q1' })).toBeNull();
+    expect(dropAction(S, entry('q1'), { kind: 'row', court: 0, id: 'q2' })).toBeNull();
+    expect(dropAction(S, entry('q2'), { kind: 'queueEnd', court: 0 })).toBeNull();
+  });
+
+  test("teams can't wait for a singles court", () => {
+    const singles = { ...S, courtModes: ['doubles', 'singles'] };
+    expect(dropAction(singles, entry('q1'), { kind: 'queueEnd', court: 1 })).toEqual({ error: "Court 2 is singles, so teams can't wait for it." });
+  });
+
+  test('the bin removes a player, or a whole team in line', () => {
+    expect(dropAction(S, player('jon'), { kind: 'bin' })).toEqual({ k: 'kick', b: { userId: 'jon' }, msg: 'Removed Jon' });
+    expect(dropAction(S, entry('q1'), { kind: 'bin' })).toEqual({ k: 'removePair', b: { entryId: 'q1' }, msg: 'Removed Ava & Leo' });
+    expect(dropAction(S, entry('q2'), { kind: 'bin' })).toEqual({ k: 'kick', b: { userId: 'noor' }, msg: 'Removed Noor' });
+  });
+
+  test('a player who already left: nothing happens', () => {
+    expect(dropAction(S, player('ghost'), { kind: 'bin' })).toBeNull();
   });
 });
