@@ -28,6 +28,7 @@ let S = null, mode = 'login', authErr = '', authMsg = '', booted = false, busy =
 let sel = null;          // {kind:'court', court, side} | {kind:'entry', id} | null
 let place;               // where I was at the last load (undefined until the first load)
 let calledUp = null;     // court number for the "you're up" screen, or null
+let movedMyself = false; // set after my own action, so stepping onto a court myself is not announced as "you're up"
 
 let toastT; const toast = m => { const t = document.getElementById('toast'); t.textContent = m; t.className = 'show'; clearTimeout(toastT); toastT = setTimeout(() => t.className = '', 3500); };
 
@@ -37,8 +38,8 @@ async function load(force) {
   else { try { S = await api('state'); } catch (e) { toast(e.message); } }
   if (S?.me) {
     const now = myPlace(S);
-    if (justCalledUp(place, now)) { calledUp = now.court; sel = null; navigator.vibrate?.([200, 100, 200]); }
-    place = now;
+    if (justCalledUp(place, now) && !movedMyself) { calledUp = now.court; sel = null; navigator.vibrate?.([200, 100, 200]); }
+    place = now; movedMyself = false;
     sel = validSelection(S, sel);
   }
   booted = true;
@@ -46,7 +47,7 @@ async function load(force) {
 }
 async function act(k, b) {
   if (busy) return; busy = true;
-  try { await api(k, b); sel = null; } catch (e) { toast(e.message); } finally { busy = false; }
+  try { await api(k, b); sel = null; movedMyself = true; } catch (e) { toast(e.message); } finally { busy = false; }
   await load(true);
 }
 

@@ -37,7 +37,7 @@ button{font:inherit;color:inherit}
 .spots{font-size:13px;font-weight:600;color:var(--mute)}
 .art{display:block;position:relative}
 .art svg{display:block;width:100%;height:auto}
-.tag{position:absolute;transform:translateX(-50%);background:#fff;color:var(--ink);font-size:11px;font-weight:600;line-height:1;padding:3px 6px;white-space:nowrap}
+.tag{position:absolute;transform:translateX(-50%);background:#fff;color:var(--ink);font-size:11px;font-weight:600;line-height:1;padding:3px 6px;white-space:nowrap;max-width:34%;overflow:hidden;text-overflow:ellipsis}
 .tag.me{background:var(--orange)}
 /* preview of me on the side I picked, before I join */
 .tag.preview{outline:2px dashed var(--ink);outline-offset:1px;animation:blink 1s steps(2) infinite}
@@ -60,6 +60,7 @@ button{font:inherit;color:inherit}
 .queue{height:112px;overflow-y:auto;padding-bottom:72px;scrollbar-width:none;-webkit-mask-image:linear-gradient(to bottom,#000 0,#000 42%,transparent 100%);mask-image:linear-gradient(to bottom,#000 0,#000 42%,transparent 100%)}
 .queue::-webkit-scrollbar{display:none}
 .row{display:flex;align-items:center;gap:12px;width:100%;height:40px;padding:0 4px 0 0;margin:0;border:0;border-bottom:1px solid var(--rule);background:none;text-align:left;font-size:15px;font-weight:600;cursor:pointer}
+.row>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .n{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--ink);color:var(--bg);font-family:var(--display);font-size:14px;font-weight:600}
 
 /* selection: everything dims except the picked court or queue row and the action button */
