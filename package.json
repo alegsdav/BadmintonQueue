@@ -6,13 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4"
   },
   "devDependencies": {
-    "vite": "^8.3.6"
+    "vite": "^8.3.6",
+    "vitest": "^4.1.12"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

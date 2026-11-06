@@ -21,10 +21,16 @@ Push to GitHub, then Vercel -> Add New Project -> import. Vercel detects Vite au
 Add two Environment Variables in Project Settings: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, then redeploy.
 (Or: `npx vercel`, then add the variables and run `npx vercel --prod`.)
 
-## Notes
-- More courts: `update settings set courts_count = 3;`
-- Players can join a specific court and choose a side, or join the general queue. Court invites can target an available court and side and place both players there after acceptance; invites can be addressed by email or an exact profile name.
-- Pairs can leave together, and admins can remove a whole pair from its spot. Admins can also toggle whether losing players rejoin the queue.
-- Admins can pair two single players and move them together to a court with room for a pair or to the end of the queue.
-- When loser rejoin is enabled and no one is already waiting, the losing entry stays in the queue so its members can choose an open side together. Court selection is only available to the first queue entry and requires enough room for the entire entry.
-- All writes go through database functions; clients cannot edit tables directly, so admin rules hold even if someone tampers with the page.
+## How it plays
+- Every court has its own queue. Tap a court, then the button: you take an open spot, or join the end of that court's queue.
+- Tap a single player in a queue to team up with them. The pair keeps whichever partner's spot was further ahead; if the pair splits while waiting, the partner who joined goes to the end of the line.
+- Winners stay on, but a team that has played 3 straight matches comes off after the 3rd even if it wins (the losers stay). Players on that court, or admins, report the result.
+- When you move from a queue onto a court, the screen turns green: "You're up, baddie!"
+
+## Settings (Supabase dashboard, table `settings`)
+- More courts: `courts_count`.
+- Singles courts: `singles_courts` holds the court indexes (0 = Court 1) that play singles, e.g. `{1}` for Court 2.
+- Winner cap: `win_cap` (default 3).
+- Losers rejoin their court's queue: `loser_back`.
+- Admins: add their email to the `admin_emails` table.
+- All writes go through database functions; clients cannot edit tables directly, so the rules hold even if someone tampers with the page.
