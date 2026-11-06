@@ -17,6 +17,7 @@ const RPC = {
   join: ['join_queue', b => ({ p_court: b.court })],
   joinCourt: ['join_court', b => ({ p_court: b.court, p_side: b.side })],
   leave: ['leave_queue', () => ({})],
+  switchCourt: ['switch_court', b => ({ p_court: b.court, p_side: b.side ?? null })],
   moveQueue: ['move_queue', b => ({ p_court: b.court })],
   joinTeam: ['join_team', b => ({ p_entry: b.entryId })],
   win: ['report_win', b => ({ p_court: b.court, p_side: b.side })],
@@ -43,16 +44,9 @@ async function load(force) {
   booted = true;
   if (force || !/INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || '')) render();
 }
-// "Leave & join" is two existing RPCs in a row: leave your spot, then take the new court side (or its queue).
-async function run(k, b) {
-  if (k !== 'switchCourt') return api(k, b);
-  await api('leave');
-  try { await api(b.side ? 'joinCourt' : 'join', b); }
-  catch (e) { throw new Error(`You left your spot, but couldn't join Court ${b.court + 1}: ${e.message}`); }
-}
 async function act(k, b) {
   if (busy) return; busy = true;
-  try { await run(k, b); sel = null; } catch (e) { toast(e.message); } finally { busy = false; }
+  try { await api(k, b); sel = null; } catch (e) { toast(e.message); } finally { busy = false; }
   await load(true);
 }
 
