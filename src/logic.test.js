@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { adminButtons, buttonState, courtQueue, dropAction, pairAction, courtSlots, justCalledUp, myPlace, openSpots, queueRows, resolveSide, spotsLabel, validSelection, waitingLabel } from './logic.js';
+import { adminButtons, buttonState, courtLayout, courtQueue, dropAction, pairAction, placeLabel, courtSlots, justCalledUp, myPlace, openSpots, queueRows, resolveSide, spotsLabel, validSelection, waitingLabel } from './logic.js';
 
 const names = { me: 'Alex', maya: 'Maya', jon: 'Jon', priya: 'Priya', sam: 'Sam', ava: 'Ava', leo: 'Leo', noor: 'Noor', kai: 'Kai' };
 const e = (id, members, queueCourt = null) => ({ id, members, queueCourt, streak: 0 });
@@ -211,11 +211,11 @@ describe('admin drops', () => {
     expect(dropAction(S, player('maya'), { kind: 'side', court: 0, side: 'a' })).toBeNull();
   });
 
-  test('onto another player swaps the two; a teammate or a whole team does not', () => {
+  test('onto another player swaps the two; a teammate does nothing', () => {
     expect(dropAction(S, player('jon'), player('priya'))).toEqual({ k: 'swap', b: { a: 'jon', b: 'priya' }, msg: 'Swapped Jon and Priya' });
     expect(dropAction(S, entry('q2'), player('kai'))).toEqual({ k: 'swap', b: { a: 'noor', b: 'kai' }, msg: 'Swapped Noor and Kai' });
     expect(dropAction(S, player('maya'), player('jon'))).toBeNull();
-    expect(dropAction(S, entry('q1'), player('kai')).error).toMatch(/one player at a time/);
+    expect(dropAction(S, entry('q1'), player('kai')).k).toBe('swapEntries');  // a whole team trades places with Kai
   });
 
   test('into a queue: before a row, or at the end', () => {
@@ -279,5 +279,52 @@ describe('admin pairing', () => {
   test('a selected player who leaves the board is cleared', () => {
     expect(validSelection(S, { kind: 'player', user: 'noor' })).toEqual({ kind: 'player', user: 'noor' });
     expect(validSelection(S, { kind: 'pairWith', user: 'ghost' })).toBeNull();
+  });
+});
+
+describe('court tools', () => {
+  const S = state();  // Court 1: Maya & Jon vs Priya & Sam (teams). Court 2: Kai alone on the left. Court 1 queue: Ava & Leo, Noor.
+
+  test('teams are drawn as one group; singles and open spots one by one', () => {
+    expect(courtLayout(S, 0)).toEqual({ cap: 2, a: [{ team: 'c1a', members: ['maya', 'jon'] }], b: [{ team: 'c1b', members: ['priya', 'sam'] }] });
+    expect(courtLayout(S, 1)).toEqual({ cap: 2, a: [{ id: 'kai' }, { open: true }], b: [{ open: true }, { open: true }] });
+    expect(courtLayout(S, 1, { court: 1, side: 'b' }).b).toEqual([{ id: 'me', preview: true }, { open: true }]);
+    const two = { ...S, courts: [S.courts[0], { a: [{ id: 'k', members: ['kai'] }, { id: 'n', members: ['noor'] }], b: [] }] };
+    expect(courtLayout(two, 1).a).toEqual([{ id: 'kai' }, { id: 'noor' }]);  // two singles are not a team
+  });
+
+  test('a solo waiting for a court can take its open spot by hand', () => {
+    const S2 = { ...S, courts: [{ a: [{ id: 'm', members: ['maya'] }], b: S.courts[0].b }, S.courts[1]], queue: [e('q1', ['ava', 'leo'], 0), e('mine', ['me'], 0)] };
+    const st = buttonState(S2, court(0, null));
+    expect(labels(st)).toEqual(['Join Court 1', 'Leave']);
+    expect(st.buttons[0].action).toEqual({ k: 'switchCourt', b: { court: 0, side: 'a' } });
+    expect(st.preview).toEqual({ court: 0, side: 'a' });
+  });
+
+  test('a waiting team does not get Join for a single open spot', () => {
+    const S2 = { ...S, courts: [{ a: [{ id: 'm', members: ['maya'] }], b: S.courts[0].b }, S.courts[1]], queue: [e('mine', ['me', 'noor'], 0)] };
+    expect(labels(buttonState(S2, court(0, null)))).toEqual(['Leave']);
+  });
+
+  test('a team dragged onto a team or a player swaps their places', () => {
+    expect(dropAction(S, { kind: 'entry', id: 'c1a' }, { kind: 'team', id: 'q1' }))
+      .toEqual({ k: 'swapEntries', b: { a: 'c1a', b: 'q1' }, msg: 'Swapped Maya & Jon and Ava & Leo' });
+    expect(dropAction(S, { kind: 'entry', id: 'q1' }, { kind: 'player', user: 'kai' }))
+      .toEqual({ k: 'swapEntries', b: { a: 'q1', b: 'c2a' }, msg: 'Swapped Ava & Leo and Kai' });
+    expect(dropAction(S, { kind: 'entry', id: 'q2' }, { kind: 'team', id: 'c1b' }).k).toBe('swapEntries');  // a single trades with a team
+    expect(dropAction(S, { kind: 'entry', id: 'c1a' }, { kind: 'team', id: 'c1a' })).toBeNull();
+    expect(dropAction(S, { kind: 'player', user: 'leo' }, { kind: 'team', id: 'c1a' }).error).toMatch(/split them up/);
+  });
+
+  test('a team on court can be dragged off to a queue or onto an open side', () => {
+    expect(dropAction(S, { kind: 'entry', id: 'c1b' }, { kind: 'queueEnd', court: 0 }).k).toBe('queue');
+    expect(dropAction(S, { kind: 'entry', id: 'c1b' }, { kind: 'side', court: 1, side: 'b' }).k).toBe('place');
+  });
+
+  test('the player list says where everyone is', () => {
+    expect(placeLabel(S, 'jon')).toBe('On Court 1 with Maya');
+    expect(placeLabel(S, 'noor')).toBe('In line for Court 1');
+    expect(placeLabel(S, 'leo')).toBe('In line for Court 1 with Ava');
+    expect(placeLabel(S, 'zed')).toBe('Not signed up');
   });
 });

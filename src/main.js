@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import './style.css';
-import { adminButtons, buttonState, courtSlots, dropAction, findEntry, isLive, justCalledUp, myPlace, nameOf, pairAction, queueRows, resolveSide, spotsLabel, teamName, validSelection, waitingLabel } from './logic.js';
+import { adminButtons, buttonState, courtLayout, courtSlots, dropAction, findEntry, isLive, justCalledUp, myPlace, nameOf, pairAction, placeLabel, queueRows, resolveSide, spotsLabel, teamName, validSelection, waitingLabel } from './logic.js';
 import { courtArt, esc, racket } from './pixel.js';
 
 const URL = import.meta.env.VITE_SUPABASE_URL, KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -31,6 +31,10 @@ const RPC = {
   removePair: ['admin_remove_pair', b => ({ p_entry: b.entryId })],
   pair: ['admin_pair', b => ({ p_user: b.userId, p_target: b.targetId })],
   split: ['admin_split', b => ({ p_user: b.userId })],
+  seat: ['admin_seat', b => ({ p_court: b.court, p_side: b.side, p_user: b.userId })],
+  swapEntries: ['admin_swap_entries', b => ({ p_a: b.a, p_b: b.b })],
+  players: ['admin_players', () => ({})],
+  reset: ['admin_reset', b => ({ p_confirm: b.confirm })],
   allow: ['admin_allow', b => ({ p_email: b.email, p_add: b.add })],
   loser: ['admin_set_loser_back', b => ({ p_loser_back: b.loserBack })],
 };
@@ -41,7 +45,8 @@ let sel = null;          // {kind:'court', court, side} | {kind:'entry', id} | n
 let place;               // where I was at the last load (undefined until the first load)
 let calledUp = null;     // court number for the "you're up" screen, or null
 let movedMyself = false; // set after my own action, so stepping onto a court myself is not announced as "you're up"
-let adminMode = false, settingsOpen = false;
+let adminMode = false, settingsOpen = false, resetStep = 0;
+let picker = null, players = null;  // admin "+" spot: {court, side}, and every account once loaded
 let drag = null;          // admin drag in progress: {src, label, x, y, pointerId, touch, timer, active, ghost, over}
 let swallowClick = false; // true right after a drop, so the click that follows doesn't also select something
 const adminOn = () => adminMode && !!S?.me?.isAdmin;
@@ -93,7 +98,6 @@ function courtLabel(c, slots) {
 
 function courtBlock(court, c, preview) {
   const slots = courtSlots(S, c, preview), spots = spotsLabel(S, c);
-  const previewSide = preview?.court === c ? preview.side : null;
   const picked = sel?.kind === 'court' && sel.court === c;
   const rows = queueRows(S, c);
   const list = rows.length ? `<div class="queue" data-scroll="${c}" tabindex="0" aria-label="Court ${c + 1} queue">${rows.map(r => {
@@ -102,8 +106,8 @@ function courtBlock(court, c, preview) {
   }).join('')}</div>` : '';
   return `<section class="court-col">
     <button type="button" class="court${picked ? ' sel' : ''}" data-act="pickCourt" data-court="${c}" aria-pressed="${picked}" aria-label="${esc(courtLabel(c, slots))}">
-      <span class="court-head"><span class="title">Court ${c + 1}${S.courtModes?.[c] === 'singles' ? ' <small>Singles</small>' : ''}</span>${spots ? `<span class="spots">${spots}</span>` : ''}</span>
-      ${courtArt(slots, id => nameOf(S, id), isLive(court), S.me.id, previewSide)}
+      <span class="court-head"><span class="title">Court ${c + 1}${S.courtModes?.[c] === 'singles' ? ' <small>Singles</small>' : ''}<span class="hint">(Click court to queue, or join a teammate in queue)</span></span>${spots ? `<span class="spots">${spots}</span>` : ''}</span>
+      ${courtArt(courtLayout(S, c, preview), id => nameOf(S, id), isLive(court), S.me.id)}
     </button>
     <div class="next" data-court="${c}"><div class="next-head"><span>Up next</span><span class="mute">${waitingLabel(S, c)}</span></div>${list}</div>
   </section>`;
@@ -131,6 +135,40 @@ function adminStrip() {
     <button type="button" class="chip-btn" data-act="settings">Settings</button></div>`;
 }
 
+function resetView() {
+  const n = S.queue.concat(...S.courts.flatMap(c => [c.a, c.b])).reduce((sum, e) => sum + e.members.length, 0);
+  if (!resetStep) {
+    return `<div class="danger"><h3>Practice reset</h3><p class="mute">Take everyone off every court and out of every queue.</p>
+      <button type="button" class="chip-btn warn" data-act="resetStart">Clear all courts and queues…</button></div>`;
+  }
+  return `<div class="danger confirm" role="alert"><h3>Clear everything?</h3>
+    <p>This removes all ${n} ${n === 1 ? 'player' : 'players'} from every court and queue. It can't be undone.</p>
+    <label>Type <b>CLEAR</b> to confirm<input type="text" data-input="resetWord" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+    <div class="row-btns"><button type="button" class="chip-btn" data-act="resetCancel">Cancel</button>
+      <button type="button" class="chip-btn warn" data-act="resetDo" aria-disabled="true">Clear all courts and queues</button></div></div>`;
+}
+
+function pickerView() {
+  if (!picker || !adminOn()) return '';
+  const list = players === null ? '<p class="mute">Loading players…</p>'
+    : players.map(p => `<li><button type="button" class="pick" data-act="seatPick" data-user="${esc(p.id)}" data-search="${esc(`${p.name} ${p.email}`.toLowerCase())}">
+        <b>${esc(p.name)}</b><span class="mute">${esc(placeLabel(S, p.id))}</span></button></li>`).join('');
+  return `<div class="sheet-wrap"><button type="button" class="scrim" data-act="closePicker" aria-label="Close player list"></button>
+    <section class="panel sheet" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+      <div class="sheet-head"><h2 id="picker-title">Add to Court ${picker.court + 1}</h2><button type="button" class="chip-btn" data-act="closePicker">Cancel</button></div>
+      <p class="mute">${picker.side === 'a' ? 'Left' : 'Right'} side. Players already on a court or in line move here; a teammate in line keeps their spot.</p>
+      <input type="search" data-input="pickerSearch" placeholder="Search by name or email" aria-label="Search players">
+      <ul class="picks">${list}</ul>
+    </section></div>`;
+}
+
+async function openPicker(court, side) {
+  picker = { court, side }; players = null; sel = null; render();
+  try { players = await api('players'); } catch (x) { toast(x.message); picker = null; }
+  render();
+  $app.querySelector('[data-input="pickerSearch"]')?.focus();
+}
+
 function settingsView() {
   if (!settingsOpen || !adminOn()) return '';
   const admins = S.admins?.list ?? [];
@@ -142,6 +180,7 @@ function settingsView() {
       <div class="admins"><h3>Admins</h3><p class="mute">Confirmed accounts with these emails get the admin tools.</p>
         <ul>${admins.map(m => `<li><span>${esc(m)}</span><button type="button" class="link" data-act="rmAdmin" data-email="${esc(m)}" aria-label="Remove ${esc(m)} as admin">Remove</button></li>`).join('')}</ul>
         <form data-form="allow" class="add"><input type="email" name="email" placeholder="name@ucsc.edu" required aria-label="New admin email"><button class="cta">Add</button></form></div>
+      ${resetView()}
     </section></div>`;
 }
 
@@ -153,7 +192,7 @@ function mainView() {
     ${adminStrip()}
     <div class="courts">${S.courts.map((court, c) => courtBlock(court, c, st?.preview)).join('')}</div>
     ${dim ? '<button type="button" class="scrim" data-act="clear" aria-label="Close selection"></button>' : ''}
-    ${actionBar(st)}${adm ? '<div class="bin" aria-hidden="true">Drop here to remove</div>' : ''}</div>${settingsView()}${upView()}`;
+    ${actionBar(st)}${adm ? '<div class="bin" aria-hidden="true">Drop here to remove</div>' : ''}</div>${settingsView()}${pickerView()}${upView()}`;
 }
 
 /** Which half of the court was tapped: a "+" spot's own side, else the half under the pointer (null for keyboard). */
@@ -181,7 +220,9 @@ function render() {
 /** Admin mode: tapping a player (on court, or a name in line) selects them; while pairing, it picks the partner. */
 function adminTap(e) {
   if (e.target.closest('.bar, .admin-strip, .top')) return false;
-  let user = e.target.closest('.tag[data-user]:not(.preview), .mem[data-user]')?.dataset.user;
+  const open = e.target.closest('.open[data-side]');
+  if (open && sel?.kind !== 'pairWith') { openPicker(+open.closest('.court').dataset.court, open.dataset.side); return true; }
+  let user = e.target.closest('.tag[data-user]:not(.preview), .mem[data-user], .tm[data-user]')?.dataset.user;
   if (!user && sel?.kind === 'pairWith') {  // a tap on a single's row also counts as that player
     const row = e.target.closest('.row[data-id]'), found = row && findEntry(S, x => x.id === row.dataset.id);
     if (found?.entry.members.length === 1) user = found.entry.members[0];
@@ -203,7 +244,7 @@ function underScrim(e) {
 
 $app.addEventListener('click', e => {
   if (swallowClick) { swallowClick = false; e.preventDefault(); e.stopPropagation(); return; }  // the click that ends a drag
-  if (adminOn() && !settingsOpen && adminTap(e)) return;
+  if (adminOn() && !settingsOpen && !picker && adminTap(e)) return;
   let b = e.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'clear') b = underScrim(e) || b;
   const d = b.dataset;
@@ -217,8 +258,21 @@ $app.addEventListener('click', e => {
     mode: () => { mode = mode === 'login' ? 'register' : 'login'; authErr = authMsg = ''; render(); },
     admin: () => { adminMode = !adminMode; settingsOpen = false; sel = null; render(); },
     settings: () => { settingsOpen = true; sel = null; render(); },
+    seatPick: () => {
+      const { court, side } = picker; picker = null;
+      const who = players?.find(p => p.id === d.user)?.name ?? nameOf(S, d.user);
+      act('seat', { court, side, userId: d.user }, `Moved ${who} to Court ${court + 1}`);
+    },
+    closePicker: () => { picker = null; render(); },
+    resetStart: () => { resetStep = 1; render(); $app.querySelector('[data-input="resetWord"]')?.focus(); },
+    resetCancel: () => { resetStep = 0; render(); },
+    resetDo: () => {
+      if (b.getAttribute('aria-disabled') === 'true') return;
+      resetStep = 0; settingsOpen = false;
+      act('reset', { confirm: 'CLEAR' }, 'All courts and queues are cleared');
+    },
     pairStart: () => { if (sel?.user) { sel = { kind: 'pairWith', user: sel.user }; render(); } },
-    closeSettings: () => { settingsOpen = false; render(); },
+    closeSettings: () => { settingsOpen = false; resetStep = 0; render(); },
     loser: () => act('loser', { loserBack: b.checked }, b.checked ? 'Losers now rejoin the queue' : 'Losers now leave the court'),
     rmAdmin: () => {
       const self = d.email === S.me.email?.toLowerCase();
@@ -230,15 +284,22 @@ $app.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (drag) { endDrag(); return; }
-  if (!sel && calledUp === null && !settingsOpen) return;
-  sel = null; calledUp = null; settingsOpen = false; render();
+  if (!sel && calledUp === null && !settingsOpen && !picker) return;
+  sel = null; calledUp = null; settingsOpen = false; resetStep = 0; picker = null; render();
 });
 
 // ---- admin drag and drop: pointer events, so it works with a mouse and (after a press and hold) on touch ----
 const HOLD_MS = 300;
 
 function dragSource(el) {
-  const tag = el.closest('.tag[data-user]:not(.preview), .mem[data-user]');
+  const mem = el.closest('.mem[data-user]');
+  if (mem) return { src: { kind: 'player', user: mem.dataset.user }, label: nameOf(S, mem.dataset.user) };
+  const team = el.closest('.tag.team[data-entry]');
+  if (team) {
+    const found = findEntry(S, e => e.id === team.dataset.entry);
+    return found ? { src: { kind: 'entry', id: team.dataset.entry }, label: teamName(S, found.entry.members) } : null;
+  }
+  const tag = el.closest('.tag[data-user]:not(.preview)');
   if (tag) return { src: { kind: 'player', user: tag.dataset.user }, label: nameOf(S, tag.dataset.user) };
   const row = el.closest('.row[data-id]');
   if (row) {
@@ -252,6 +313,8 @@ function dragSource(el) {
 function dropTarget(x, y) {
   for (const el of document.elementsFromPoint(x, y)) {
     if (el.closest('.bin')) return { el: el.closest('.bin'), t: { kind: 'bin' } };
+    const team = el.closest('.tag.team[data-entry]');
+    if (team && team.dataset.entry !== drag?.src.id) return { el: team, t: { kind: 'team', id: team.dataset.entry } };
     const tag = el.closest('.tag[data-user]:not(.preview)');
     if (tag && tag.dataset.user !== drag?.src.user) return { el: tag, t: { kind: 'player', user: tag.dataset.user } };
     const row = el.closest('.row[data-id]');
@@ -307,7 +370,7 @@ function endDrag(drop = false) {
 }
 
 $app.addEventListener('pointerdown', e => {
-  if (!adminOn() || settingsOpen || drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  if (!adminOn() || settingsOpen || picker || drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
   const s = dragSource(e.target); if (!s) return;
   const touch = e.pointerType !== 'mouse';
   drag = { ...s, x: e.clientX, y: e.clientY, pointerId: e.pointerId, touch, active: false };
@@ -324,6 +387,15 @@ document.addEventListener('pointerup', e => { if (drag && e.pointerId === drag.p
 document.addEventListener('pointercancel', e => { if (drag && e.pointerId === drag.pointerId) endDrag(); });
 document.addEventListener('touchmove', e => { if (drag?.active) e.preventDefault(); }, { passive: false });  // no scrolling mid-drag
 $app.addEventListener('contextmenu', e => { if (adminOn() && dragSource(e.target)) e.preventDefault(); });
+
+$app.addEventListener('input', e => {
+  const k = e.target.dataset.input;
+  if (k === 'pickerSearch') {
+    const q = e.target.value.trim().toLowerCase();
+    $app.querySelectorAll('.pick[data-search]').forEach(b => { b.parentElement.hidden = !!q && !b.dataset.search.includes(q); });
+  }
+  if (k === 'resetWord') $app.querySelector('[data-act="resetDo"]')?.setAttribute('aria-disabled', String(e.target.value.trim() !== 'CLEAR'));
+});
 
 $app.addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target, v = Object.fromEntries(new FormData(f));

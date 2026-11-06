@@ -65,14 +65,14 @@ describe('admin_place', () => {
     expect(b.queues[0]).toEqual(['Ava', 'Leo']);
   });
 
-  test('moving one player of a pair leaves the partner where they were, and the queue fills the gap', async () => {
+  test('moving one player of a pair leaves the partner where they were; the half-empty side waits', async () => {
     await as('Leo', 'join_team', { p_entry: (await entryOf('Ava')).id });  // Ava + Leo team up in Court 1's queue
     await admin('admin_place', { p_court: 1, p_side: 'a', p_user: P.Jon });  // Jon leaves his pair for Kai's side
     const b = await board();
     expect(b.courts[1]).toBe('a: Jon, Kai | b: ');
-    // Maya keeps her spot; Jon's open spot goes to the first single in line who fits (Noor, since Ava+Leo is a pair)
-    expect(b.courts[0]).toBe('a: Maya, Noor | b: Priya+Sam');
-    expect(b.queues[0]).toEqual(['Ava+Leo']);
+    // Maya keeps her spot; Jon's open spot is not filled automatically
+    expect(b.courts[0]).toBe('a: Maya | b: Priya+Sam');
+    expect(b.queues[0]).toEqual(['Ava+Leo', 'Noor']);
   });
 
   test('a whole team moves together', async () => {
@@ -135,18 +135,18 @@ describe('admin_queue', () => {
     expect((await board()).queues[0]).toEqual(['Ava', 'Noor', 'Leo', 'Admin']);
   });
 
-  test("moves a waiting player to another court's queue, where an open spot pulls them on", async () => {
+  test("moves a waiting player to another court's queue, where the empty side pulls them on", async () => {
     await admin('admin_queue', { p_queue_court: 1, p_entry: (await entryOf('Leo')).id });
     const b = await board();
-    expect(b.courts[1]).toBe('a: Kai, Leo | b: ');
+    expect(b.courts[1]).toBe('a: Kai | b: Leo');
     expect(b.queues[0]).toEqual(['Ava', 'Noor']);
   });
 
-  test('takes a player off court into a spot in line; the first in line fills the court', async () => {
+  test('takes a player off court into a spot in line; their half-empty side waits', async () => {
     await admin('admin_queue', { p_queue_court: 0, p_before: (await entryOf('Leo')).id, p_user: P.Sam });
     const b = await board();
-    expect(b.courts[0]).toBe('a: Jon+Maya | b: Priya, Ava');
-    expect(b.queues[0]).toEqual(['Sam', 'Leo', 'Noor']);
+    expect(b.courts[0]).toBe('a: Jon+Maya | b: Priya');
+    expect(b.queues[0]).toEqual(['Ava', 'Sam', 'Leo', 'Noor']);
   });
 
   test('a team cannot join a singles court queue', async () => {
@@ -183,7 +183,7 @@ describe('admin_pair and admin_split', () => {
     await admin('admin_pair', { p_user: P.Jon, p_target: P.Ava });
     const b = await board();
     expect(b.queues[0][0]).toBe('Ava+Jon');
-    expect(b.courts[0]).toBe('a: Maya, Leo | b: Priya+Sam');  // Leo, first single in line, fills Jon's spot
+    expect(b.courts[0]).toBe('a: Maya | b: Priya+Sam');  // Jon's spot stays open
   });
 
   test('two singles on the same court side become a team', async () => {
@@ -214,5 +214,86 @@ describe('admin_pair and admin_split', () => {
     await admin('admin_split', { p_user: P.Jon });
     expect((await board()).courts[0]).toBe('a: Jon, Maya | b: Priya+Sam');
     await expect(admin('admin_split', { p_user: P.Jon })).rejects.toThrow('not on a team');
+  });
+});
+
+describe('admin emails', () => {
+  test('an email added with stray whitespace or capitals still grants admin', async () => {
+    await db.query("insert into admin_emails (email) values ($1)", ['  Maya@Example.com\n']);
+    expect((await db.query("select email from admin_emails where email like 'maya%'")).rows).toEqual([{ email: 'maya@example.com' }]);
+    expect((await as('Maya', 'get_state')).me.isAdmin).toBe(true);
+    expect((await as('Jon', 'get_state')).me.isAdmin).toBe(false);
+  });
+});
+
+describe('court tools', () => {
+  test('a half-empty side is not filled automatically; a solo in that queue can join it', async () => {
+    await admin('admin_kick', { p_user: P.Jon });
+    expect((await board()).courts[0]).toBe('a: Maya | b: Priya+Sam');
+    await as('Noor', 'switch_court', { p_court: 0, p_side: 'a' });  // Noor (3rd in line) joins by hand
+    const b = await board();
+    expect(b.courts[0]).toBe('a: Maya, Noor | b: Priya+Sam');
+    expect(b.queues[0]).toEqual(['Ava', 'Leo']);
+  });
+
+  test('an empty side still takes the next team or player in line', async () => {
+    await as('Maya', 'report_win', { p_court: 0, p_side: 'a' });  // losers leave: side b is empty
+    expect((await board()).courts[0]).toBe('a: Jon+Maya | b: Ava');  // only Ava; the next solo waits
+  });
+
+  test('admin_players lists every account, for admins only', async () => {
+    const list = await admin('admin_players');
+    expect(list.map(p => p.name)).toEqual([...NAMES].sort((x, y) => x.toLowerCase().localeCompare(y.toLowerCase())));
+    await expect(as('Maya', 'admin_players')).rejects.toThrow('Admins only.');
+  });
+
+  test('admin_seat: someone not signed up, someone on another court, a solo in line', async () => {
+    await admin('admin_seat', { p_court: 1, p_side: 'b', p_user: P.Admin });
+    expect((await board()).courts[1]).toBe('a: Kai | b: Admin');
+    await admin('admin_seat', { p_court: 1, p_side: 'a', p_user: P.Admin });  // moves them across
+    expect((await board()).courts[1]).toBe('a: Kai, Admin | b: ');
+    await admin('admin_seat', { p_court: 1, p_side: 'b', p_user: P.Noor });
+    const b = await board();
+    expect(b.courts[1]).toBe('a: Kai, Admin | b: Noor');
+    expect(b.queues[0]).toEqual(['Ava', 'Leo']);
+  });
+
+  test('admin_seat splits a player from their teammate in line, who keeps the spot', async () => {
+    await admin('admin_pair', { p_user: P.Leo, p_target: P.Ava });  // Ava+Leo, Noor
+    await admin('admin_seat', { p_court: 1, p_side: 'b', p_user: P.Ava });
+    const b = await board();
+    expect(b.courts[1]).toBe('a: Kai | b: Ava');
+    expect(b.queues[0]).toEqual(['Leo', 'Noor']);
+    await expect(admin('admin_seat', { p_court: 0, p_side: 'a', p_user: P.Leo })).rejects.toThrow('That side is full.');
+  });
+
+  test('admin_swap_entries: a team on court trades places with a team in line', async () => {
+    await admin('admin_pair', { p_user: P.Leo, p_target: P.Ava });
+    await admin('admin_swap_entries', { p_a: (await entryOf('Maya')).id, p_b: (await entryOf('Ava')).id });
+    const b = await board();
+    expect(b.courts[0]).toBe('a: Ava+Leo | b: Priya+Sam');
+    expect(b.queues[0]).toEqual(['Jon+Maya', 'Noor']);
+  });
+
+  test('admin_swap_entries: teams swap sides or courts, and room is checked', async () => {
+    await admin('admin_swap_entries', { p_a: (await entryOf('Maya')).id, p_b: (await entryOf('Priya')).id });
+    expect((await board()).courts[0]).toBe('a: Priya+Sam | b: Jon+Maya');
+    await admin('admin_swap_entries', { p_a: (await entryOf('Maya')).id, p_b: (await entryOf('Kai')).id });  // team to Court 2, Kai to Court 1
+    expect((await board()).courts.slice(0, 2)).toEqual(['a: Priya+Sam | b: Kai', 'a: Jon+Maya | b: ']);
+    await admin('admin_seat', { p_court: 0, p_side: 'b', p_user: P.Noor });  // Court 1 side b: Kai, Noor
+    await expect(admin('admin_swap_entries', { p_a: (await entryOf('Maya')).id, p_b: (await entryOf('Kai')).id }))
+      .rejects.toThrow('Not enough room on that side of Court 1.');
+  });
+
+  test('admin_reset clears every court and queue, only with CLEAR', async () => {
+    await expect(admin('admin_reset', { p_confirm: 'clear' })).rejects.toThrow('Type CLEAR to confirm.');
+    await expect(as('Maya', 'admin_reset', { p_confirm: 'CLEAR' })).rejects.toThrow('Admins only.');
+    expect((await board()).courts[0]).toBe('a: Jon+Maya | b: Priya+Sam');
+    await admin('admin_reset', { p_confirm: 'CLEAR' });
+    const b = await board();
+    expect(b.courts).toEqual(['a:  | b: ', 'a:  | b: ']);
+    expect(b.S.queue).toEqual([]);
+    await as('Maya', 'join_queue', { p_court: 0 });  // the board works again straight away
+    expect((await board()).courts[0]).toBe('a: Maya | b: ');
   });
 });

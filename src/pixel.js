@@ -6,6 +6,8 @@ const SKIN = ['#E8B894', '#C8936E', '#A8774F'];
 
 // Sprite anchor (top-left pixel) for each slot. Doubles: back and front player per side; singles: one centred player.
 const SLOTS = { 2: { a: [[13, 8], [18, 17]], b: [[45, 9], [50, 18]] }, 1: { a: [[15, 12]], b: [[47, 13]] } };
+// A team stands side by side in the middle of its half.
+const TEAM = { a: [[13, 12], [19, 12]], b: [[44, 13], [50, 13]] };
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const px = (x, y, w, h, fill, extra = '') => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}"${extra}></rect>`;
@@ -50,26 +52,36 @@ const pct = (v, total) => `${((v / total) * 100).toFixed(1)}%`;
 
 /**
  * The court art plus HTML overlays (name tags for players, dashed "+" squares for open spots).
- * @param {{a: (string|null)[], b: (string|null)[]}} slots user ids or null per slot
+ * A team stands side by side under one tag; single players keep their own spot and tag.
+ * @param {{cap: 1|2, a: any[], b: any[]}} layout from courtLayout(): {team, members} | {id, preview?} | {open: true} per side
  * @param {(id: string) => string} nameOf
  * @param {boolean} live a game is in play (draws the shuttle)
  * @param {string} meId the signed-in player, whose tag is highlighted
- * @param {'a'|'b'|null} previewSide side where the signed-in player is drawn as a not-yet-joined preview
  */
-export function courtArt(slots, nameOf, live, meId, previewSide = null) {
-  const cap = slots.a.length;
+export function courtArt(layout, nameOf, live, meId) {
+  const { cap } = layout;
   let sprites = '', overlays = '';
+  const at = (x, y) => `left:${pct(x, 64)};top:${pct(y, 30)}`;
   for (const side of ['a', 'b']) {
-    slots[side].forEach((id, i) => {
-      const [x, y] = SLOTS[cap][side][i];
-      if (id) {
-        const mine = id === meId, preview = mine && side === previewSide;
-        sprites += preview ? `<g class="ghost">${sprite([x, y], side, id)}</g>` : sprite([x, y], side, id);
-        overlays += `<span class="tag${mine ? ' me' : ''}${preview ? ' preview' : ''}" data-user="${esc(id)}" style="left:${pct(x + 1, 64)};top:${pct(y + 5.6, 30)}">${esc(nameOf(id))}</span>`;
-      } else {
-        overlays += `<span class="open" data-side="${side}" style="left:${pct(x + 1, 64)};top:${pct(y + 2.5, 30)}" aria-hidden="true"></span>`;
+    let slot = 0;
+    for (const spot of layout[side]) {
+      if (spot.team) {
+        const [p1, p2] = TEAM[side];
+        spot.members.forEach((id, i) => { sprites += sprite(i ? p2 : p1, side, id); });
+        const names = spot.members.map(id => `<span class="tm" data-user="${esc(id)}">${esc(nameOf(id))}</span>`).join(' &amp; ');
+        overlays += `<span class="tag team${spot.members.includes(meId) ? ' me' : ''}" data-entry="${esc(spot.team)}" style="${at((p1[0] + p2[0]) / 2 + 1, p1[1] + 5.6)}">${names}</span>`;
+        slot += 2;
+        continue;
       }
-    });
+      const [x, y] = SLOTS[cap][side][slot++];
+      if (spot.open) {
+        overlays += `<span class="open" data-side="${side}" style="${at(x + 1, y + 2.5)}" aria-hidden="true"></span>`;
+        continue;
+      }
+      const mine = spot.id === meId;
+      sprites += spot.preview ? `<g class="ghost">${sprite([x, y], side, spot.id)}</g>` : sprite([x, y], side, spot.id);
+      overlays += `<span class="tag${mine ? ' me' : ''}${spot.preview ? ' preview' : ''}" data-user="${esc(spot.id)}" style="${at(x + 1, y + 5.6)}">${esc(nameOf(spot.id))}</span>`;
+    }
   }
   const shuttle = live ? px(36, 11, 1, 1, '#FFFFFF') + px(37, 11, 1, 1, INK, ' opacity="0.5"') : '';
   return `<span class="art"><svg viewBox="0 0 64 30" shape-rendering="crispEdges" aria-hidden="true">${

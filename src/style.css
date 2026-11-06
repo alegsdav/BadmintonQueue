@@ -188,3 +188,36 @@ button{font:inherit;color:inherit}
 .tag.picked{background:var(--orange);outline:3px solid var(--cream);z-index:1}
 .mem.picked{background:var(--orange);outline:2px solid var(--ink)}
 .pairing .tag:not(.picked):not(.preview),.pairing .mem:not(.picked){outline:2px dashed var(--orange);outline-offset:1px;cursor:pointer}
+
+/* court header hint */
+.title .hint{display:block;font:500 11px/1.3 Inter,system-ui,sans-serif;color:var(--mute);margin-top:2px}
+
+/* a team on court: one tag for both */
+.tag.team{max-width:44%}
+.tag.team.me{background:var(--orange)}
+.tm.picked{background:var(--orange);outline:2px solid var(--ink)}
+.admin .tag.team{cursor:grab}
+.admin .tm{cursor:pointer}
+.pairing .tag.team .tm:not(.picked){text-decoration:underline dashed var(--orange) 2px;text-underline-offset:2px}
+.admin .open{cursor:pointer}
+
+/* admin "+": player list */
+.sheet input[type=search]{font:16px Inter,system-ui,sans-serif;color:var(--ink);background:#fff;border:2px solid var(--ink);border-radius:0;padding:10px 12px;width:100%}
+.picks{list-style:none;margin:0;padding:0;display:grid;max-height:min(55svh,420px);overflow-y:auto;border-top:2px solid var(--rule)}
+.pick{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;min-height:48px;padding:6px 4px;border:0;border-bottom:1px solid var(--rule);background:none;text-align:left;cursor:pointer}
+.pick:hover,.pick:focus-visible{background:var(--cream)}
+.pick b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.pick .mute{font-size:12px;flex-shrink:0;text-align:right}
+
+/* practice reset */
+.danger{display:grid;gap:8px;border-top:2px solid var(--rule);padding-top:14px}
+.danger p{margin:0}
+.danger.confirm{border:3px solid var(--err);padding:12px;background:#fff}
+.danger.confirm h3{color:var(--err)}
+.danger label{display:grid;gap:6px;font-size:13px;font-weight:600;color:var(--mute)}
+.danger input{font:16px Inter,system-ui,sans-serif;color:var(--ink);background:#fff;border:2px solid var(--ink);border-radius:0;padding:10px 12px;letter-spacing:2px}
+.row-btns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.chip-btn.warn{background:var(--err);color:var(--cream)}
+.chip-btn.warn[aria-disabled=true]{opacity:.4;cursor:not-allowed}
+.danger>.chip-btn{justify-self:start}
+@media (min-width:900px){.title .hint{font-size:13px}}

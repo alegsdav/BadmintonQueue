@@ -88,7 +88,13 @@ function courtButtons(S, sel, place) {
     for (const side of ['a', 'b']) buttons.push(go(`${teamName(S, court[side].flatMap(e => e.members))} won`, 'win', { court: c, side }));
   }
   const secondary = b => (buttons.length ? { ...b, secondary: true } : b);
-  if (onThis || queuedHere) return { buttons: [...buttons, secondary(LEAVE())], preview: null };
+  if (onThis) return { buttons: [...buttons, secondary(LEAVE())], preview: null };
+  if (queuedHere) {
+    // a solo waiting for this court may take an open spot by hand (open spots next to someone are never filled automatically)
+    const side = place.entry.members.length === 1 ? resolveSide(S, c, sel.side) : null;
+    if (!side) return { buttons: [...buttons, secondary(LEAVE())], preview: null };
+    return { buttons: [...buttons, secondary(go(`Join Court ${n}`, 'switchCourt', { court: c, side })), { ...LEAVE(), secondary: true }], preview: { court: c, side } };
+  }
 
   const side = resolveSide(S, c, sel.side);
   const teamInQueue = place?.where === 'queue' && place.entry.members.length > 1;
@@ -177,8 +183,15 @@ export function dropAction(S, src, target) {
   }
   if (target.kind === 'player') {
     if (entry.members.includes(target.user)) return null;
-    if (!single) return { error: 'Drop a team on a side with room, or move one player at a time.' };
-    return { k: 'swap', b: { a: single, b: target.user }, msg: `Swapped ${who} and ${nameOf(S, target.user)}` };
+    if (single) return { k: 'swap', b: { a: single, b: target.user }, msg: `Swapped ${who} and ${nameOf(S, target.user)}` };
+    const other = findEntry(S, e => e.members.includes(target.user));  // a whole team trades places with that player
+    return other ? { k: 'swapEntries', b: { a: entry.id, b: other.entry.id }, msg: `Swapped ${who} and ${teamName(S, other.entry.members)}` } : null;
+  }
+  if (target.kind === 'team') {
+    const other = findEntry(S, e => e.id === target.id);
+    if (!other || other.entry === entry) return null;
+    if (src.kind === 'player' && entry.members.length > 1) return { error: 'Drag the whole team, or split them up first.' };
+    return { k: 'swapEntries', b: { a: entry.id, b: other.entry.id }, msg: `Swapped ${who} and ${teamName(S, other.entry.members)}` };
   }
   if (target.kind === 'side') {
     const { court: c, side } = target;
@@ -238,4 +251,36 @@ export function pairAction(S, user, target) {
     if (sideRoom(S, theirs.court, theirs.side) + (sameSide ? 1 : 0) < 1) return { error: 'No room for a team on that side. Move someone off it first.' };
   }
   return { k: 'pair', b: { userId: user, targetId: target }, msg: `${nameOf(S, user)} and ${nameOf(S, target)} are now a team` };
+}
+
+/**
+ * What to draw on each side of court c: a team (drawn side by side with one name tag), single players, and open spots.
+ * With a preview, the signed-in player is drawn in the first open spot of that side.
+ * @returns {{cap: 1|2, a: Spot[], b: Spot[]}} where Spot = {team: string, members: string[]} | {id: string, preview?: boolean} | {open: true}
+ */
+export function courtLayout(S, c, preview = null) {
+  const cap = capOf(S, c), court = S.courts[c];
+  const side = s => {
+    const out = [];
+    for (const e of court[s]) {
+      if (cap === 2 && e.members.length === 2) out.push({ team: e.id, members: e.members });
+      else e.members.forEach(id => out.push({ id }));
+    }
+    let used = out.reduce((n, x) => n + (x.team ? 2 : 1), 0);
+    if (preview?.court === c && preview.side === s && used < cap) { out.push({ id: S.me.id, preview: true }); used++; }
+    for (; used < cap; used++) out.push({ open: true });
+    return out;
+  };
+  return { cap, a: side('a'), b: side('b') };
+}
+
+/** Where a player is, for the admin's player list. */
+export function placeLabel(S, id) {
+  const found = findEntry(S, e => e.members.includes(id));
+  if (!found) return 'Not signed up';
+  const partner = found.entry.members.find(m => m !== id);
+  const withWho = partner ? ` with ${nameOf(S, partner)}` : '';
+  if (found.court !== null) return `On Court ${found.court + 1}${withWho}`;
+  const qc = found.entry.queueCourt;
+  return `${qc == null ? 'In line' : `In line for Court ${qc + 1}`}${withWho}`;
 }
