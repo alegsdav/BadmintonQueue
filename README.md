@@ -1,4 +1,4 @@
-# Courtside Queue
+# Slugminton
 
 Badminton court queue: Vite (vanilla JS) front end, Supabase (Postgres, Auth, Realtime), deployed on Vercel.
 Winner-stays doubles, pairs or singles, admin allowlist by email.

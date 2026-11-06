@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import './style.css';
 import { buttonState, courtSlots, isLive, justCalledUp, myPlace, nameOf, queueRows, spotsLabel, validSelection, waitingLabel } from './logic.js';
-import { SHUTTLE, courtArt, esc } from './pixel.js';
+import { courtArt, esc, racket } from './pixel.js';
 
 const URL = import.meta.env.VITE_SUPABASE_URL, KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const $app = document.getElementById('app');
@@ -48,11 +48,12 @@ async function act(k, b) {
 }
 
 // ---- views ----
-const WORDMARK = `<div class="brand">${SHUTTLE}<span>Courtside</span></div>`;
+const WORDMARK = `<div class="brand">${racket()}<span>Slugminton</span></div>`;
+const AUTH_MARK = `<div class="brand big">${racket({ strings: true })}<span>Slugminton</span></div>`;
 
 function authView() {
   const reg = mode === 'register';
-  return `<main class="auth"><div class="panel">${WORDMARK}
+  return `<main class="auth"><div class="panel">${AUTH_MARK}
     <h1>${reg ? 'Join the club' : 'Next up on court'}</h1>
     <p class="mute">${reg ? 'Create an account to claim a spot on court.' : 'Sign in to see the courts and your place in line.'}</p>
     <form data-form="auth">${reg ? '<label>Your name<input type="text" name="name" autocomplete="name" required maxlength="40"></label>' : ''}

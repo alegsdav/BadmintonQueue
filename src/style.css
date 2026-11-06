@@ -1,4 +1,4 @@
-/* Courtside court board: tokens from the "Courtside Queue" Claude Design canvas */
+/* Slugminton court board: tokens from the "Courtside Queue" Claude Design canvas */
 :root{
   --bg:#F5EEDC;--card:#FBF7EC;--ink:#2B2620;--mute:#5E5545;--rule:#E3D8BF;
   --orange:#D9733B;--court:#5C9A62;--cream:#FFF8E7;--err:#A3341A;
@@ -15,9 +15,11 @@ button{font:inherit;color:inherit}
 .err:empty,.mute:empty{display:none}
 
 /* brand */
-.brand{display:flex;align-items:center;gap:10px;height:32px}
-.logo{width:28px;height:28px;display:block}
+.brand{display:flex;align-items:center;gap:10px;height:37px}
+.logo{width:37px;height:37px;display:block;flex-shrink:0}
 .brand span{font-family:var(--display);font-size:26px;font-weight:600;letter-spacing:.5px}
+/* sign-in mark: the racket at 2x with strings, as on the logo sheet */
+.brand.big{height:74px;gap:14px}.brand.big .logo{width:74px;height:74px}.brand.big span{font-size:36px}
 
 /* board */
 .board{max-width:1200px;margin:0 auto;padding:16px 16px calc(100px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:12px}
@@ -86,7 +88,7 @@ button{font:inherit;color:inherit}
 
 @media (min-width:900px){
   .board{padding:32px 16px calc(120px + env(safe-area-inset-bottom));gap:32px}
-  .brand{gap:12px;height:40px}.logo{width:36px;height:36px}.brand span{font-size:34px}
+  .brand{gap:12px;height:37px}.brand span{font-size:34px}
   .courts{grid-template-columns:1fr 1fr;gap:32px}
   .court-col{gap:20px}
   .court-head{padding:12px 18px}.title{font-size:28px}
