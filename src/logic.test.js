@@ -250,11 +250,12 @@ describe('admin drops', () => {
 describe('admin pairing', () => {
   const S = state();  // Court 1: Maya & Jon vs Priya & Sam. Court 2: Kai alone on the left. Court 1 queue: Ava & Leo, Noor.
 
-  test('a single gets Team up, Remove; a team member also gets Split', () => {
-    expect(adminButtons(S, { kind: 'player', user: 'noor' }).buttons.map(b => b.label)).toEqual(['Team Noor up with…', 'Remove Noor']);
+  test('a single gets Team up, Swap, Remove; a team member also gets Split', () => {
+    expect(adminButtons(S, { kind: 'player', user: 'noor' }).buttons.map(b => b.label)).toEqual(['Team Noor up with…', 'Swap Noor with…', 'Remove Noor']);
     const jon = adminButtons(S, { kind: 'player', user: 'jon' }).buttons;
-    expect(jon.map(b => b.label)).toEqual(['Pair Jon with someone else', 'Split from Maya', 'Remove Jon']);
-    expect(jon[1].action).toEqual({ k: 'split', b: { userId: 'jon' } });
+    expect(jon.map(b => b.label)).toEqual(['Pair Jon with someone else', 'Swap Jon with…', 'Split from Maya', 'Remove Jon']);
+    expect(jon[1].local).toBe('swapPick');
+    expect(jon[2].action).toEqual({ k: 'split', b: { userId: 'jon' } });
     expect(jon[0].local).toBe('pairStart');
   });
 

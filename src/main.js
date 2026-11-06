@@ -46,7 +46,7 @@ let place;               // where I was at the last load (undefined until the fi
 let calledUp = null;     // court number for the "you're up" screen, or null
 let movedMyself = false; // set after my own action, so stepping onto a court myself is not announced as "you're up"
 let adminMode = false, settingsOpen = false, resetStep = 0;
-let picker = null, players = null;  // admin "+" spot: {court, side}, and every account once loaded
+let picker = null, players = null, pickerQuery = '', resetWord = '';  // admin player list: what it's for, every account once loaded, the search
 let drag = null;          // admin drag in progress: {src, label, x, y, pointerId, touch, timer, active, ghost, over}
 let swallowClick = false; // true right after a drop, so the click that follows doesn't also select something
 const adminOn = () => adminMode && !!S?.me?.isAdmin;
@@ -143,27 +143,39 @@ function resetView() {
   }
   return `<div class="danger confirm" role="alert"><h3>Clear everything?</h3>
     <p>This removes all ${n} ${n === 1 ? 'player' : 'players'} from every court and queue. It can't be undone.</p>
-    <label>Type <b>CLEAR</b> to confirm<input type="text" data-input="resetWord" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+    <label>Type <b>CLEAR</b> to confirm<input type="text" data-input="resetWord" value="${esc(resetWord)}" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
     <div class="row-btns"><button type="button" class="chip-btn" data-act="resetCancel">Cancel</button>
-      <button type="button" class="chip-btn warn" data-act="resetDo" aria-disabled="true">Clear all courts and queues</button></div></div>`;
+      <button type="button" class="chip-btn warn" data-act="resetDo" aria-disabled="${resetWord.trim() !== 'CLEAR'}">Clear all courts and queues</button></div></div>`;
 }
 
 function pickerView() {
   if (!picker || !adminOn()) return '';
+  const swap = picker.mode === 'swap';
+  const skip = swap ? new Set(findEntry(S, e => e.members.includes(picker.user))?.entry.members ?? [picker.user]) : new Set();
+  const q = pickerQuery.trim().toLowerCase();
   const list = players === null ? '<p class="mute">Loading players…</p>'
-    : players.map(p => `<li><button type="button" class="pick" data-act="seatPick" data-user="${esc(p.id)}" data-search="${esc(`${p.name} ${p.email}`.toLowerCase())}">
-        <b>${esc(p.name)}</b><span class="mute">${esc(placeLabel(S, p.id))}</span></button></li>`).join('');
+    : players.filter(p => !skip.has(p.id)).map(p => {
+      const key = `${p.name} ${p.email}`.toLowerCase();
+      return `<li${q && !key.includes(q) ? ' hidden' : ''}><button type="button" class="pick" data-act="pickPick" data-user="${esc(p.id)}" data-search="${esc(key)}">
+        <b>${esc(p.name)}</b><span class="mute">${esc(placeLabel(S, p.id))}</span></button></li>`;
+    }).join('');
+  const name = swap ? nameOf(S, picker.user) : '';
+  const title = swap ? `Swap ${esc(name)} with…` : `Add to Court ${picker.court + 1}`;
+  const help = swap
+    ? `They trade places, teammates included. Pick someone who isn't signed up and they take ${esc(name)}'s spot while ${esc(name)} leaves.`
+    : `${picker.side === 'a' ? 'Left' : 'Right'} side. Players already on a court or in line move here; a teammate in line keeps their spot.`;
   return `<div class="sheet-wrap"><button type="button" class="scrim" data-act="closePicker" aria-label="Close player list"></button>
-    <section class="panel sheet" role="dialog" aria-modal="true" aria-labelledby="picker-title">
-      <div class="sheet-head"><h2 id="picker-title">Add to Court ${picker.court + 1}</h2><button type="button" class="chip-btn" data-act="closePicker">Cancel</button></div>
-      <p class="mute">${picker.side === 'a' ? 'Left' : 'Right'} side. Players already on a court or in line move here; a teammate in line keeps their spot.</p>
-      <input type="search" data-input="pickerSearch" placeholder="Search by name or email" aria-label="Search players">
-      <ul class="picks">${list}</ul>
+    <section class="panel sheet" data-scroll="picker" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+      <div class="sheet-head"><h2 id="picker-title">${title}</h2><button type="button" class="chip-btn" data-act="closePicker">Cancel</button></div>
+      <p class="mute">${help}</p>
+      <input type="search" data-input="pickerSearch" value="${esc(pickerQuery)}" placeholder="Search by name or email" aria-label="Search players">
+      <ul class="picks" data-scroll="picks">${list}</ul>
     </section></div>`;
 }
 
-async function openPicker(court, side) {
-  picker = { court, side }; players = null; sel = null; render();
+/** @param {{mode: 'seat', court: number, side: 'a'|'b'} | {mode: 'swap', user: string}} what */
+async function openPicker(what) {
+  picker = what; players = null; pickerQuery = ''; sel = null; render();
   try { players = await api('players'); } catch (x) { toast(x.message); picker = null; }
   render();
   $app.querySelector('[data-input="pickerSearch"]')?.focus();
@@ -173,7 +185,7 @@ function settingsView() {
   if (!settingsOpen || !adminOn()) return '';
   const admins = S.admins?.list ?? [];
   return `<div class="sheet-wrap"><button type="button" class="scrim" data-act="closeSettings" aria-label="Close settings"></button>
-    <section class="panel sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <section class="panel sheet" data-scroll="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="sheet-head"><h2 id="settings-title">Settings</h2><button type="button" class="chip-btn" data-act="closeSettings">Done</button></div>
       <label class="switch"><input type="checkbox" data-act="loser"${S.loserBack ? ' checked' : ''}>
         <span><b>Losers rejoin the queue</b><span class="mute">When off, the losing team leaves the court and has to sign up again.</span></span></label>
@@ -221,7 +233,7 @@ function render() {
 function adminTap(e) {
   if (e.target.closest('.bar, .admin-strip, .top')) return false;
   const open = e.target.closest('.open[data-side]');
-  if (open && sel?.kind !== 'pairWith') { openPicker(+open.closest('.court').dataset.court, open.dataset.side); return true; }
+  if (open && sel?.kind !== 'pairWith') { openPicker({ mode: 'seat', court: +open.closest('.court').dataset.court, side: open.dataset.side }); return true; }
   let user = e.target.closest('.tag[data-user]:not(.preview), .mem[data-user], .tm[data-user]')?.dataset.user;
   if (!user && sel?.kind === 'pairWith') {  // a tap on a single's row also counts as that player
     const row = e.target.closest('.row[data-id]'), found = row && findEntry(S, x => x.id === row.dataset.id);
@@ -258,13 +270,15 @@ $app.addEventListener('click', e => {
     mode: () => { mode = mode === 'login' ? 'register' : 'login'; authErr = authMsg = ''; render(); },
     admin: () => { adminMode = !adminMode; settingsOpen = false; sel = null; render(); },
     settings: () => { settingsOpen = true; sel = null; render(); },
-    seatPick: () => {
-      const { court, side } = picker; picker = null;
+    pickPick: () => {
+      const what = picker; picker = null;
       const who = players?.find(p => p.id === d.user)?.name ?? nameOf(S, d.user);
-      act('seat', { court, side, userId: d.user }, `Moved ${who} to Court ${court + 1}`);
+      if (what.mode === 'swap') act('swap', { a: what.user, b: d.user }, `Swapped ${nameOf(S, what.user)} and ${who}`);
+      else act('seat', { court: what.court, side: what.side, userId: d.user }, `Moved ${who} to Court ${what.court + 1}`);
     },
+    swapPick: () => { if (sel?.user) openPicker({ mode: 'swap', user: sel.user }); },
     closePicker: () => { picker = null; render(); },
-    resetStart: () => { resetStep = 1; render(); $app.querySelector('[data-input="resetWord"]')?.focus(); },
+    resetStart: () => { resetStep = 1; resetWord = ''; render(); $app.querySelector('[data-input="resetWord"]')?.focus(); },
     resetCancel: () => { resetStep = 0; render(); },
     resetDo: () => {
       if (b.getAttribute('aria-disabled') === 'true') return;
@@ -391,10 +405,11 @@ $app.addEventListener('contextmenu', e => { if (adminOn() && dragSource(e.target
 $app.addEventListener('input', e => {
   const k = e.target.dataset.input;
   if (k === 'pickerSearch') {
-    const q = e.target.value.trim().toLowerCase();
+    pickerQuery = e.target.value;
+    const q = pickerQuery.trim().toLowerCase();
     $app.querySelectorAll('.pick[data-search]').forEach(b => { b.parentElement.hidden = !!q && !b.dataset.search.includes(q); });
   }
-  if (k === 'resetWord') $app.querySelector('[data-act="resetDo"]')?.setAttribute('aria-disabled', String(e.target.value.trim() !== 'CLEAR'));
+  if (k === 'resetWord') { resetWord = e.target.value; $app.querySelector('[data-act="resetDo"]')?.setAttribute('aria-disabled', String(resetWord.trim() !== 'CLEAR')); }
 });
 
 $app.addEventListener('submit', async e => {

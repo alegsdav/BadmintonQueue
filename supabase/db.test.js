@@ -297,3 +297,22 @@ describe('court tools', () => {
     expect((await board()).courts[0]).toBe('a: Maya | b: ');
   });
 });
+
+describe('swap with anyone', () => {
+  test('someone not signed up takes over a spot on court, teammate included; the other leaves', async () => {
+    await admin('admin_swap', { p_a: P.Jon, p_b: P.Admin });
+    const b = await board();
+    expect(b.courts[0]).toBe('a: Admin+Maya | b: Priya+Sam');
+    expect(JSON.stringify(b.S)).not.toContain(P.Jon);
+  });
+
+  test('works in either order, and from a spot in line', async () => {
+    await admin('admin_swap', { p_a: P.Admin, p_b: P.Leo });
+    expect((await board()).queues[0]).toEqual(['Ava', 'Admin', 'Noor']);
+  });
+
+  test('two players without a spot cannot swap', async () => {
+    await admin('admin_kick', { p_user: P.Noor });
+    await expect(admin('admin_swap', { p_a: P.Noor, p_b: P.Admin })).rejects.toThrow('Neither player has a spot.');
+  });
+});

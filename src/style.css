@@ -221,3 +221,8 @@ button{font:inherit;color:inherit}
 .chip-btn.warn[aria-disabled=true]{opacity:.4;cursor:not-allowed}
 .danger>.chip-btn{justify-self:start}
 @media (min-width:900px){.title .hint{font-size:13px}}
+
+/* sheets: scroll inside, never the page behind */
+.sheet{overscroll-behavior:contain}
+html:has(.sheet-wrap),body:has(.sheet-wrap){overflow:hidden}
+.picks li[hidden]{display:none}

@@ -228,7 +228,8 @@ export function adminButtons(S, sel) {
     return { buttons: [{ label: `Now tap ${name}'s new partner`, disabled: true }, { label: 'Cancel', disabled: false, local: 'clear', secondary: true }], preview: null };
   }
   const partner = partnerOf(S, sel.user);
-  const buttons = [{ label: partner ? `Pair ${name} with someone else` : `Team ${name} up with…`, disabled: false, local: 'pairStart' }];
+  const buttons = [{ label: partner ? `Pair ${name} with someone else` : `Team ${name} up with…`, disabled: false, local: 'pairStart' },
+    { label: `Swap ${name} with…`, disabled: false, secondary: true, local: 'swapPick' }];
   if (partner) buttons.push({ label: `Split from ${nameOf(S, partner)}`, disabled: false, secondary: true, action: { k: 'split', b: { userId: sel.user } } });
   buttons.push({ label: `Remove ${name}`, disabled: false, secondary: true, action: { k: 'kick', b: { userId: sel.user } } });
   return { buttons, preview: null };
