@@ -61,7 +61,7 @@ export const myPlace = S => {
   return { where: 'queue', court, pos: line.indexOf(entry) + 1, entry };
 };
 
-export const queueRows = (S, c) => courtQueue(S, c).map((e, i) => ({ id: e.id, n: i + 1, names: teamName(S, e.members), size: e.members.length }));
+export const queueRows = (S, c) => courtQueue(S, c).map((e, i) => ({ id: e.id, n: i + 1, names: teamName(S, e.members), size: e.members.length, members: e.members }));
 
 export const waitingLabel = (S, c) => {
   const n = courtQueue(S, c).length;
@@ -134,6 +134,7 @@ export function buttonState(S, sel) {
 export const validSelection = (S, sel) => {
   if (sel?.kind === 'court') return S.courts[sel.court] ? sel : null;
   if (sel?.kind === 'entry') return S.queue.some(e => e.id === sel.id) ? sel : null;
+  if (sel?.kind === 'player' || sel?.kind === 'pairWith') return findEntry(S, e => e.members.includes(sel.user)) ? sel : null;
   return null;
 };
 
@@ -191,11 +192,50 @@ export function dropAction(S, src, target) {
     const c = target.court, before = target.kind === 'row' ? target.id : null;
     if (before === entry.id) return null;
     if (size > capOf(S, c)) return { error: `Court ${c + 1} is singles, so teams can't wait for it.` };
-    if (src.kind === 'entry' && found.court === null) {
+    if (found.court === null && (src.kind === 'entry' || entry.members.length === 1)) {
       const line = courtQueue(S, c), i = line.indexOf(entry);
       if (i >= 0 && (before ? line[i + 1]?.id === before : i === line.length - 1)) return null;  // already in that spot
     }
     return { k: 'queue', b: { court: c, before, ...mover }, msg: `Moved ${who} in line for Court ${c + 1}` };
   }
   return null;
+}
+
+// ---- admin pairing: tap a player, then "Team up with…" and tap the partner ----
+
+const partnerOf = (S, user) => findEntry(S, e => e.members.includes(user))?.entry.members.find(id => id !== user) ?? null;
+
+/**
+ * Bottom buttons while an admin has a player selected. A button with `local` is handled in the page, not sent to the database.
+ * @param {any} S @param {{kind: 'player' | 'pairWith', user: string}} sel
+ */
+export function adminButtons(S, sel) {
+  const name = nameOf(S, sel.user);
+  if (sel.kind === 'pairWith') {
+    return { buttons: [{ label: `Now tap ${name}'s new partner`, disabled: true }, { label: 'Cancel', disabled: false, local: 'clear', secondary: true }], preview: null };
+  }
+  const partner = partnerOf(S, sel.user);
+  const buttons = [{ label: partner ? `Pair ${name} with someone else` : `Team ${name} up with…`, disabled: false, local: 'pairStart' }];
+  if (partner) buttons.push({ label: `Split from ${nameOf(S, partner)}`, disabled: false, secondary: true, action: { k: 'split', b: { userId: sel.user } } });
+  buttons.push({ label: `Remove ${name}`, disabled: false, secondary: true, action: { k: 'kick', b: { userId: sel.user } } });
+  return { buttons, preview: null };
+}
+
+/**
+ * Teaming `user` up with `target`: user joins target wherever target is.
+ * @returns {null | {error: string} | {k: string, b: object, msg: string}}
+ */
+export function pairAction(S, user, target) {
+  if (!user || !target || user === target) return null;
+  const mine = findEntry(S, e => e.members.includes(user)), theirs = findEntry(S, e => e.members.includes(target));
+  if (!mine || !theirs) return null;
+  if (mine.entry === theirs.entry) return { error: `${nameOf(S, user)} and ${nameOf(S, target)} are already a team.` };
+  if (theirs.entry.members.length > 1) return { error: `${nameOf(S, target)} already has a partner. Split them up first.` };
+  const c = theirs.court ?? theirs.entry.queueCourt;
+  if (c != null && capOf(S, c) < 2) return { error: `Court ${c + 1} is singles, so teams can't play or wait there.` };
+  if (theirs.court != null) {
+    const sameSide = mine.court === theirs.court && mine.side === theirs.side;
+    if (sideRoom(S, theirs.court, theirs.side) + (sameSide ? 1 : 0) < 1) return { error: 'No room for a team on that side. Move someone off it first.' };
+  }
+  return { k: 'pair', b: { userId: user, targetId: target }, msg: `${nameOf(S, user)} and ${nameOf(S, target)} are now a team` };
 }

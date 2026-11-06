@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import './style.css';
-import { buttonState, courtSlots, dropAction, findEntry, isLive, justCalledUp, myPlace, nameOf, queueRows, resolveSide, spotsLabel, teamName, validSelection, waitingLabel } from './logic.js';
+import { adminButtons, buttonState, courtSlots, dropAction, findEntry, isLive, justCalledUp, myPlace, nameOf, pairAction, queueRows, resolveSide, spotsLabel, teamName, validSelection, waitingLabel } from './logic.js';
 import { courtArt, esc, racket } from './pixel.js';
 
 const URL = import.meta.env.VITE_SUPABASE_URL, KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -29,6 +29,8 @@ const RPC = {
   swap: ['admin_swap', b => ({ p_a: b.a, p_b: b.b })],
   kick: ['admin_kick', b => ({ p_user: b.userId })],
   removePair: ['admin_remove_pair', b => ({ p_entry: b.entryId })],
+  pair: ['admin_pair', b => ({ p_user: b.userId, p_target: b.targetId })],
+  split: ['admin_split', b => ({ p_user: b.userId })],
   allow: ['admin_allow', b => ({ p_email: b.email, p_add: b.add })],
   loser: ['admin_set_loser_back', b => ({ p_loser_back: b.loserBack })],
 };
@@ -96,7 +98,7 @@ function courtBlock(court, c, preview) {
   const rows = queueRows(S, c);
   const list = rows.length ? `<div class="queue" data-scroll="${c}" tabindex="0" aria-label="Court ${c + 1} queue">${rows.map(r => {
     const on = sel?.kind === 'entry' && sel.id === r.id;
-    return `<button type="button" class="row${on ? ' sel' : ''}" data-act="pickEntry" data-id="${esc(r.id)}" aria-pressed="${on}"><span class="n">${r.n}</span><span>${esc(r.names)}</span></button>`;
+    return `<button type="button" class="row${on ? ' sel' : ''}" data-act="pickEntry" data-id="${esc(r.id)}" aria-pressed="${on}"><span class="n">${r.n}</span><span>${adminOn() ? r.members.map(id => `<span class="mem" data-user="${esc(id)}">${esc(nameOf(S, id))}</span>`).join(' &amp; ') : esc(r.names)}</span></button>`;
   }).join('')}</div>` : '';
   return `<section class="court-col">
     <button type="button" class="court${picked ? ' sel' : ''}" data-act="pickCourt" data-court="${c}" aria-pressed="${picked}" aria-label="${esc(courtLabel(c, slots))}">
@@ -110,7 +112,8 @@ function courtBlock(court, c, preview) {
 function actionBar(st) {
   if (!st) return '';
   const button = btn => {
-    const a = btn.action ? ` data-act="do" data-k="${btn.action.k}" data-b="${esc(JSON.stringify(btn.action.b))}"` : '';
+    const a = btn.action ? ` data-act="do" data-k="${btn.action.k}" data-b="${esc(JSON.stringify(btn.action.b))}"`
+      : btn.local ? ` data-act="${btn.local}"` : '';
     return `<button type="button" class="cta${btn.secondary ? ' alt' : ''}"${a} aria-disabled="${btn.disabled}">${esc(btn.label)}</button>`;
   };
   return `<div class="bar${st.buttons.length > 1 ? ' stack' : ''}">${st.buttons.map(button).join('')}</div>`;
@@ -124,7 +127,7 @@ function upView() {
 
 function adminStrip() {
   if (!adminOn()) return '';
-  return `<div class="admin-strip"><p><b>Admin mode.</b> Drag players onto a side, onto someone to swap, into a queue, or to the bin. On a phone, press and hold first.</p>
+  return `<div class="admin-strip"><p><b>Admin mode.</b> Drag players onto a side, onto someone to swap, into a queue, or to the bin (on a phone, press and hold first). Tap a player to team them up, split them, or remove them.</p>
     <button type="button" class="chip-btn" data-act="settings">Settings</button></div>`;
 }
 
@@ -143,12 +146,13 @@ function settingsView() {
 }
 
 function mainView() {
-  const st = buttonState(S, sel), adm = adminOn();
+  const adm = adminOn(), picking = adm && (sel?.kind === 'player' || sel?.kind === 'pairWith');
+  const st = picking ? adminButtons(S, sel) : buttonState(S, sel), dim = sel && !picking;
   const adminBtn = S.me.isAdmin ? `<button type="button" class="signout${adm ? ' on' : ''}" data-act="admin" aria-pressed="${adm}">Admin</button>` : '';
-  return `<div class="board${sel ? ' has-sel' : ''}${adm ? ' admin' : ''}"><header class="top">${WORDMARK}<div class="top-actions">${adminBtn}<button type="button" class="signout" data-act="out">Sign out</button></div></header>
+  return `<div class="board${dim ? ' has-sel' : ''}${adm ? ' admin' : ''}${sel?.kind === 'pairWith' ? ' pairing' : ''}"><header class="top">${WORDMARK}<div class="top-actions">${adminBtn}<button type="button" class="signout" data-act="out">Sign out</button></div></header>
     ${adminStrip()}
     <div class="courts">${S.courts.map((court, c) => courtBlock(court, c, st?.preview)).join('')}</div>
-    ${sel ? '<button type="button" class="scrim" data-act="clear" aria-label="Close selection"></button>' : ''}
+    ${dim ? '<button type="button" class="scrim" data-act="clear" aria-label="Close selection"></button>' : ''}
     ${actionBar(st)}${adm ? '<div class="bin" aria-hidden="true">Drop here to remove</div>' : ''}</div>${settingsView()}${upView()}`;
 }
 
@@ -169,16 +173,37 @@ function render() {
   const scrolls = [...$app.querySelectorAll('[data-scroll]')].map(el => [el.dataset.scroll, el.scrollTop]);
   $app.innerHTML = S && S.me ? mainView() : authView();
   for (const [k, top] of scrolls) { const el = $app.querySelector(`[data-scroll="${k}"]`); if (el) el.scrollTop = top; }
+  if (sel?.user) $app.querySelectorAll(`[data-user="${CSS.escape(sel.user)}"]`).forEach(el => el.classList.add('picked'));
 }
 
 // ---- events ----
 /** A tap on the dimmed scrim selects the court or queue row under it, so switching takes one tap. */
+/** Admin mode: tapping a player (on court, or a name in line) selects them; while pairing, it picks the partner. */
+function adminTap(e) {
+  if (e.target.closest('.bar, .admin-strip, .top')) return false;
+  let user = e.target.closest('.tag[data-user]:not(.preview), .mem[data-user]')?.dataset.user;
+  if (!user && sel?.kind === 'pairWith') {  // a tap on a single's row also counts as that player
+    const row = e.target.closest('.row[data-id]'), found = row && findEntry(S, x => x.id === row.dataset.id);
+    if (found?.entry.members.length === 1) user = found.entry.members[0];
+  }
+  if (!user) return false;
+  if (sel?.kind === 'pairWith') {
+    const a = pairAction(S, sel.user, user);
+    if (a?.error) toast(a.error); else if (a) act(a.k, a.b, a.msg);
+    return true;
+  }
+  sel = sel?.kind === 'player' && sel.user === user ? null : { kind: 'player', user };
+  render();
+  return true;
+}
+
 function underScrim(e) {
   return document.elementsFromPoint(e.clientX, e.clientY).map(el => el.closest('[data-act="pickCourt"],[data-act="pickEntry"]')).find(Boolean) || null;
 }
 
 $app.addEventListener('click', e => {
   if (swallowClick) { swallowClick = false; e.preventDefault(); e.stopPropagation(); return; }  // the click that ends a drag
+  if (adminOn() && !settingsOpen && adminTap(e)) return;
   let b = e.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'clear') b = underScrim(e) || b;
   const d = b.dataset;
@@ -192,6 +217,7 @@ $app.addEventListener('click', e => {
     mode: () => { mode = mode === 'login' ? 'register' : 'login'; authErr = authMsg = ''; render(); },
     admin: () => { adminMode = !adminMode; settingsOpen = false; sel = null; render(); },
     settings: () => { settingsOpen = true; sel = null; render(); },
+    pairStart: () => { if (sel?.user) { sel = { kind: 'pairWith', user: sel.user }; render(); } },
     closeSettings: () => { settingsOpen = false; render(); },
     loser: () => act('loser', { loserBack: b.checked }, b.checked ? 'Losers now rejoin the queue' : 'Losers now leave the court'),
     rmAdmin: () => {
@@ -212,7 +238,7 @@ document.addEventListener('keydown', e => {
 const HOLD_MS = 300;
 
 function dragSource(el) {
-  const tag = el.closest('.tag[data-user]:not(.preview)');
+  const tag = el.closest('.tag[data-user]:not(.preview), .mem[data-user]');
   if (tag) return { src: { kind: 'player', user: tag.dataset.user }, label: nameOf(S, tag.dataset.user) };
   const row = el.closest('.row[data-id]');
   if (row) {

@@ -181,3 +181,10 @@ button{font:inherit;color:inherit}
   .top-actions{gap:6px}
   .top-actions .signout{padding:6px 9px;font-size:13px}
 }
+
+/* admin pairing: the tapped player, and who can be tapped as their partner */
+.admin .mem{cursor:grab;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;padding:2px 4px;margin:0 -4px;border-radius:0}
+.admin .mem:hover{background:var(--cream);outline:2px solid var(--ink)}
+.tag.picked{background:var(--orange);outline:3px solid var(--cream);z-index:1}
+.mem.picked{background:var(--orange);outline:2px solid var(--ink)}
+.pairing .tag:not(.picked):not(.preview),.pairing .mem:not(.picked){outline:2px dashed var(--orange);outline-offset:1px;cursor:pointer}

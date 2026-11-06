@@ -160,3 +160,59 @@ describe('admin_queue', () => {
     await expect(admin('admin_queue', { p_queue_court: 0, p_before: ava, p_entry: (await entryOf('Noor')).id })).rejects.toThrow('just changed');
   });
 });
+
+describe('admin_pair and admin_split', () => {
+  test('players cannot pair or split', async () => {
+    await expect(as('Maya', 'admin_pair', { p_user: P.Ava, p_target: P.Noor })).rejects.toThrow('Admins only.');
+    await expect(as('Maya', 'admin_split', { p_user: P.Maya })).rejects.toThrow('Admins only.');
+  });
+
+  test('two singles in line: the dragged one joins the target at the target’s spot', async () => {
+    await admin('admin_pair', { p_user: P.Ava, p_target: P.Noor });
+    expect((await board()).queues[0]).toEqual(['Leo', 'Ava+Noor']);
+  });
+
+  test('a player in line can join a single on court, if that side has room', async () => {
+    await admin('admin_pair', { p_user: P.Noor, p_target: P.Kai });
+    const b = await board();
+    expect(b.courts[1]).toBe('a: Kai+Noor | b: ');
+    expect(b.queues[0]).toEqual(['Ava', 'Leo']);
+  });
+
+  test('leaving a team to join someone else: the old partner stays put', async () => {
+    await admin('admin_pair', { p_user: P.Jon, p_target: P.Ava });
+    const b = await board();
+    expect(b.queues[0][0]).toBe('Ava+Jon');
+    expect(b.courts[0]).toBe('a: Maya, Leo | b: Priya+Sam');  // Leo, first single in line, fills Jon's spot
+  });
+
+  test('two singles on the same court side become a team', async () => {
+    await admin('admin_place', { p_court: 1, p_side: 'a', p_user: P.Noor });  // Court 2 side a: Kai, Noor
+    await admin('admin_pair', { p_user: P.Noor, p_target: P.Kai });
+    expect((await board()).courts[1]).toBe('a: Kai+Noor | b: ');
+  });
+
+  test('refused: a target who already has a partner, a full side, or a singles court', async () => {
+    await expect(admin('admin_pair', { p_user: P.Ava, p_target: P.Maya })).rejects.toThrow('Maya already has a partner. Split them up first.');
+    await admin('admin_place', { p_court: 1, p_side: 'a', p_user: P.Noor });  // Court 2 side a: Kai, Noor (full)
+    await expect(admin('admin_pair', { p_user: P.Ava, p_target: P.Kai })).rejects.toThrow('No room for a team on that side.');
+    await db.query('update settings set singles_courts = $1', [[1]]);
+    await admin('admin_pair', { p_user: P.Leo, p_target: P.Ava });  // Court 1 is still doubles: allowed
+    await admin('admin_kick', { p_user: P.Noor });
+    await expect(admin('admin_pair', { p_user: P.Jon, p_target: P.Kai })).rejects.toThrow('singles court');
+  });
+
+  test('split in line: the partner keeps the spot, the other waits right behind', async () => {
+    await admin('admin_pair', { p_user: P.Noor, p_target: P.Ava });  // Ava+Noor, Leo
+    await admin('admin_split', { p_user: P.Ava });                   // Ava owned the spot, but nobody is sent to the end
+    expect((await board()).queues[0]).toEqual(['Noor', 'Ava', 'Leo']);
+    await as('Admin', 'join_queue', { p_court: 0 });
+    expect((await board()).queues[0]).toEqual(['Noor', 'Ava', 'Leo', 'Admin']);
+  });
+
+  test('split on court: both stay on their side', async () => {
+    await admin('admin_split', { p_user: P.Jon });
+    expect((await board()).courts[0]).toBe('a: Jon, Maya | b: Priya+Sam');
+    await expect(admin('admin_split', { p_user: P.Jon })).rejects.toThrow('not on a team');
+  });
+});

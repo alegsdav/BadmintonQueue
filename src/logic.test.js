@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { buttonState, courtQueue, dropAction, courtSlots, justCalledUp, myPlace, openSpots, queueRows, resolveSide, spotsLabel, validSelection, waitingLabel } from './logic.js';
+import { adminButtons, buttonState, courtQueue, dropAction, pairAction, courtSlots, justCalledUp, myPlace, openSpots, queueRows, resolveSide, spotsLabel, validSelection, waitingLabel } from './logic.js';
 
 const names = { me: 'Alex', maya: 'Maya', jon: 'Jon', priya: 'Priya', sam: 'Sam', ava: 'Ava', leo: 'Leo', noor: 'Noor', kai: 'Kai' };
 const e = (id, members, queueCourt = null) => ({ id, members, queueCourt, streak: 0 });
@@ -32,8 +32,8 @@ describe('court queues', () => {
 
   test('queue rows are numbered and show team names', () => {
     expect(queueRows(state(), 0)).toEqual([
-      { id: 'q1', n: 1, names: 'Ava & Leo', size: 2 },
-      { id: 'q2', n: 2, names: 'Noor', size: 1 },
+      { id: 'q1', n: 1, names: 'Ava & Leo', size: 2, members: ['ava', 'leo'] },
+      { id: 'q2', n: 2, names: 'Noor', size: 1, members: ['noor'] },
     ]);
   });
 
@@ -244,5 +244,40 @@ describe('admin drops', () => {
 
   test('a player who already left: nothing happens', () => {
     expect(dropAction(S, player('ghost'), { kind: 'bin' })).toBeNull();
+  });
+});
+
+describe('admin pairing', () => {
+  const S = state();  // Court 1: Maya & Jon vs Priya & Sam. Court 2: Kai alone on the left. Court 1 queue: Ava & Leo, Noor.
+
+  test('a single gets Team up, Remove; a team member also gets Split', () => {
+    expect(adminButtons(S, { kind: 'player', user: 'noor' }).buttons.map(b => b.label)).toEqual(['Team Noor up with…', 'Remove Noor']);
+    const jon = adminButtons(S, { kind: 'player', user: 'jon' }).buttons;
+    expect(jon.map(b => b.label)).toEqual(['Pair Jon with someone else', 'Split from Maya', 'Remove Jon']);
+    expect(jon[1].action).toEqual({ k: 'split', b: { userId: 'jon' } });
+    expect(jon[0].local).toBe('pairStart');
+  });
+
+  test('after Team up, the bar asks for the partner and offers Cancel', () => {
+    expect(adminButtons(S, { kind: 'pairWith', user: 'noor' }).buttons.map(b => b.label)).toEqual(["Now tap Noor's new partner", 'Cancel']);
+  });
+
+  test('pairing joins the tapped player where they are', () => {
+    expect(pairAction(S, 'noor', 'kai')).toEqual({ k: 'pair', b: { userId: 'noor', targetId: 'kai' }, msg: 'Noor and Kai are now a team' });
+    expect(pairAction(S, 'jon', 'noor').k).toBe('pair');  // Jon may leave Maya for Noor
+  });
+
+  test('refused: already a team, a target with a partner, a singles court, a full side', () => {
+    expect(pairAction(S, 'maya', 'jon').error).toMatch(/already a team/);
+    expect(pairAction(S, 'noor', 'priya').error).toBe('Priya already has a partner. Split them up first.');
+    expect(pairAction({ ...S, courtModes: ['doubles', 'singles'] }, 'noor', 'kai').error).toMatch(/singles/);
+    const crowded = { ...S, courts: [S.courts[0], { a: [{ id: 'k', members: ['kai'] }, { id: 'r', members: ['sam2'] }], b: [] }] };
+    expect(pairAction(crowded, 'noor', 'kai').error).toMatch(/No room/);
+    expect(pairAction(crowded, 'sam2', 'kai').k).toBe('pair');  // two singles on that side may team up
+  });
+
+  test('a selected player who leaves the board is cleared', () => {
+    expect(validSelection(S, { kind: 'player', user: 'noor' })).toEqual({ kind: 'player', user: 'noor' });
+    expect(validSelection(S, { kind: 'pairWith', user: 'ghost' })).toBeNull();
   });
 });
