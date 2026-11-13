@@ -116,6 +116,13 @@ button{font:inherit;color:inherit}
 
 /* ---- admin ---- */
 .top-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.top.has-teammate{display:grid;grid-template-columns:minmax(max-content,1fr) minmax(0,2fr) minmax(max-content,1fr)}
+.teammate{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;column-gap:12px;text-align:center;overflow-wrap:anywhere;font-size:14px}
+@media (max-width:650px){
+  .top.has-teammate{grid-template-columns:1fr auto}
+  .has-teammate .teammate{grid-area:2 / 1 / 3 / -1}
+  .has-teammate .top-actions{grid-area:1 / 2;max-width:45vw;width:auto;justify-content:flex-end}
+}
 .signout.on{background:var(--ink);color:var(--cream)}
 .signout:disabled{opacity:.55;cursor:default}
 .invite-banner{position:sticky;top:0;z-index:22;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px 16px;padding:10px 12px;margin-top:-16px;background:#FFE27A;border-bottom:2px solid var(--ink)}

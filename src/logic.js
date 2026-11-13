@@ -89,6 +89,13 @@ function courtButtons(S, sel, place) {
   }
   const secondary = b => (buttons.length ? { ...b, secondary: true } : b);
   if (onThis) return { buttons: [...buttons, secondary(LEAVE())], preview: null };
+  if (S.readyTeammate) {
+    if (capOf(S, c) === 1) return { buttons: [...buttons, secondary(off(`Court ${n} is singles`))], preview: null };
+    const side = [sel.side, 'a', 'b'].find(s => s && sideRoom(S, c, s) === 2);
+    const join = side ? go(`Join Court ${n} as a team`, 'joinCourt', { court: c, side })
+      : go(`Join Court ${n} queue as a team`, 'join', { court: c });
+    return { buttons: [...buttons, secondary(join)], preview: null };
+  }
   if (queuedHere) {
     // a solo waiting for this court may take an open spot by hand (open spots next to someone are never filled automatically)
     const side = place.entry.members.length === 1 ? resolveSide(S, c, sel.side) : null;
@@ -119,7 +126,7 @@ function entryButtons(S, id, place) {
   if (entry.members.length > 1) return one(off('Team is full'));
   if (entry.queueCourt != null && capOf(S, entry.queueCourt) === 1) return one(off('Singles queue'));
   if (place?.where === 'court') return one(off('Finish your game first'));
-  if (place && place.entry.members.length > 1) return one(off('You already have a partner'));
+  if (S.readyTeammate || (place && place.entry.members.length > 1)) return one(off('You already have a partner'));
   if (place && capOf(S, place.court) === 1) return one(off('Leave the singles queue first'));
   const userId = entry.members[0];
   if (S.invites?.some(invite => invite.from === userId || invite.to === userId)) return one(off('Invite already pending'));

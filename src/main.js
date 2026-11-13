@@ -19,6 +19,7 @@ const RPC = {
   join: ['join_queue', b => ({ p_court: b.court })],
   joinCourt: ['join_court', b => ({ p_court: b.court, p_side: b.side })],
   leave: ['leave_queue', () => ({})],
+  leaveTeam: ['leave_ready_team', () => ({})],
   switchCourt: ['switch_court', b => ({ p_court: b.court, p_side: b.side ?? null })],
   moveQueue: ['move_queue', b => ({ p_court: b.court })],
   invite: ['invite_player', b => ({ p_user: b.userId })],
@@ -283,7 +284,7 @@ function inviteBanner() {
   const multiple = invites.length > 1;
   return `<section class="invite-banner${multiple ? ' multiple' : ''}" aria-label="Pending teammate invitations">
     ${multiple ? arrow('prevInvite', 'Previous invite', '‹') : ''}
-    <p aria-live="polite"><strong>${esc(nameOf(S, invite.from))}</strong> invited you to team up${invite.court == null ? '' : ` on Court ${invite.court + 1}`}.
+    <p aria-live="polite"><strong>${esc(nameOf(S, invite.from))}</strong> invited you to team up.
       ${multiple ? `<span class="invite-count">${index + 1} of ${invites.length}</span>` : ''}</p>
     <div class="invite-actions">
       <button type="button" class="chip-btn invite-primary" data-act="acceptInvite" data-id="${esc(invite.id)}">Accept</button>
@@ -322,12 +323,15 @@ function mainView() {
   const st = picking ? adminButtons(S, sel) : buttonState(S, sel), dim = sel && !picking;
   const adminBtn = S.me.isAdmin ? `<button type="button" class="signout${adm ? ' on' : ''}" data-act="admin" aria-pressed="${adm}">Admin</button>` : '';
   const place = myPlace(S);
-  const canInvite = !place || (place.where === 'queue' && place.entry.members.length === 1 && capOf(S, place.court) === 2);
+  const canInvite = !S.readyTeammate && (!place || (place.where === 'queue' && place.entry.members.length === 1 && capOf(S, place.court) === 2));
+  const placedPartner = place?.entry.members.find(id => id !== S.me.id);
+  const teammateName = S.readyTeammate?.name ?? (placedPartner ? nameOf(S, placedPartner) : null);
+  const teammate = teammateName === null ? '' : `<div class="teammate"><span>Teammate: <strong>${esc(teammateName)}</strong></span>${S.readyTeammate ? '<button type="button" class="link" data-act="leaveTeam">Leave team</button>' : ''}</div>`;
   const hasSent = S.invites?.some(i => i.from === S.me.id);
   const invite = `<button type="button" class="signout" data-act="openInvite"${canInvite || hasSent ? '' : ' disabled title="Invites are available when off court, unpaired, and outside a singles queue"'}>Invite</button>`;
   return `<div class="board${dim ? ' has-sel' : ''}${adm ? ' admin' : ''}${sel?.kind === 'pairWith' ? ' pairing' : ''}"${dialog ? ' inert' : ''}>
     ${inviteBanner()}
-    <header class="top">${WORDMARK}<div class="top-actions">${invite}${adminBtn}<button type="button" class="signout" data-act="out">Sign out</button></div></header>
+    <header class="top${teammate ? ' has-teammate' : ''}">${WORDMARK}${teammate}<div class="top-actions">${invite}${adminBtn}<button type="button" class="signout" data-act="out">Sign out</button></div></header>
     ${adminStrip()}
     <div class="courts">${S.courts.map((court, c) => courtBlock(court, c, st?.preview)).join('')}</div>
     ${dim ? '<button type="button" class="scrim" data-act="clear" aria-label="Close selection"></button>' : ''}
@@ -407,6 +411,7 @@ $app.addEventListener('click', e => {
     admin: () => { adminMode = !adminMode; sel = null; render(); },
     settings: () => { dialog = { kind: 'settings', resetWord: null }; sel = null; render(); $app.querySelector('[data-act="closeSettings"]:not(.scrim)')?.focus(); },
     openInvite: () => openPicker({ kind: 'invite' }),
+    leaveTeam: () => act('leaveTeam', {}, 'You left the team'),
     prevInvite: () => cycleInvite(-1, d.act),
     nextInvite: () => cycleInvite(1, d.act),
     acceptInvite: () => act('respond', { id: d.id, accept: true }, 'You’re teammates'),

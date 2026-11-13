@@ -16,10 +16,11 @@ export async function createMockClient() {
   const as = async (i, fn, args) => { await signInAs(db, id(i)); return rpc(db, fn, args); };
   // Court 1: team Maya & Jon vs team Priya & Sam. Court 2: Kai vs Rin. Waiting: Ava & Leo (a team), Noor, Isla for Court 1; Theo, Marisol for Court 2.
   for (const [i, c, s] of [[1, 0, 'a'], [2, 0, 'a'], [3, 0, 'b'], [4, 0, 'b'], [8, 1, 'a'], [9, 1, 'b']]) await as(i, 'join_court', { p_court: c, p_side: s });
-  for (const [i, c] of [[5, 0], [7, 0], [11, 0], [10, 1], [12, 1]]) await as(i, 'join_queue', { p_court: c });
   await as(6, 'invite_player', { p_user: id(5) });
   const [avaInvite] = (await as(5, 'get_state')).invites;
   await as(5, 'respond_invite', { p_id: avaInvite.id, p_accept: true });
+  await as(5, 'join_queue', { p_court: 0 });
+  for (const [i, c] of [[7, 0], [11, 0], [10, 1], [12, 1]]) await as(i, 'join_queue', { p_court: c });
   await as(0, 'admin_pair', { p_user: id(2), p_target: id(1) });  // Maya & Jon, Priya & Sam play as teams
   await as(0, 'admin_pair', { p_user: id(4), p_target: id(3) });
   await as(7, 'invite_player', { p_user: id(0) });

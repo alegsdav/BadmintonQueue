@@ -32,7 +32,7 @@ Add two Environment Variables in Project Settings: `VITE_SUPABASE_URL` and `VITE
 ## How it plays
 - Every court has its own queue. Tap a court, then the button: you take an open spot, or join the end of that court's queue.
 - Tap **Invite** and search for a teammate, or tap a single player in a doubles queue to invite them directly. Both players must be unpaired and off court, and cannot be waiting for singles. The recipient accepts or declines in the banner at the top of the board. If several invitations are pending, use the banner arrows to move between them. Senders can cancel a pending invitation from the **Invite** dialog. A pending invitation holds no spot.
-- When an invite is accepted, the pair takes the earlier waiting spot if either player is queued. If neither player is queued, the pair waits for any doubles court. If the spot owner leaves while waiting, the remaining partner goes to the end of the line.
+- Accepting an invite shows **Teammate: [name]** at the top of the board. The pair starts off court and out of the queues, giving up any individual queue spots. Either partner can then choose a doubles court to join or queue together, or select **Leave team** before signing up.
 - Winners stay on, but a team that has played 3 straight matches comes off after the 3rd even if it wins (the losers stay). Players on that court, or admins, report the result.
 
 ## Admins

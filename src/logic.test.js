@@ -94,6 +94,14 @@ describe('myPlace', () => {
 });
 
 describe('bottom buttons', () => {
+  test('an off-board team can choose an empty doubles side or join a doubles queue', () => {
+    const S = state({ readyTeammate: { id: 'noor', name: 'Noor' } });
+    expect(buttonState(S, court(0)).buttons[0].action).toEqual({ k: 'join', b: { court: 0 } });
+    expect(buttonState(S, court(1, 'a')).buttons[0].action).toEqual({ k: 'joinCourt', b: { court: 1, side: 'b' } });
+    S.courtModes[1] = 'singles';
+    expect(buttonState(S, court(1)).buttons[0]).toEqual({ label: 'Court 2 is singles', disabled: true });
+  });
+
   test('no bar until something is selected', () => {
     expect(buttonState(state(), null)).toBeNull();
   });

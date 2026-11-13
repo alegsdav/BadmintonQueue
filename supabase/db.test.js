@@ -331,7 +331,7 @@ describe('player invitations', () => {
     expect(await as('Ava', 'invite_candidates')).toEqual([]);
   });
 
-  test('the recipient must accept before the pair takes the earlier queue spot', async () => {
+  test('acceptance forms a team off the board until either teammate explicitly queues it', async () => {
     await as('Noor', 'invite_player', { p_user: P.Ava });
     const [invite] = (await as('Ava', 'get_state')).invites;
     expect(invite).toMatchObject({ from: P.Noor, to: P.Ava });
@@ -341,10 +341,35 @@ describe('player invitations', () => {
     await expect(as('Noor', 'respond_invite', { p_id: invite.id, p_accept: true })).rejects.toThrow('Invite not found.');
     await expect(as('Ava', 'respond_invite', { p_id: invite.id, p_accept: null })).rejects.toThrow('Choose whether');
     await as('Ava', 'respond_invite', { p_id: invite.id, p_accept: true });
-    expect((await entryOf('Ava')).members.sort()).toEqual([P.Ava, P.Noor].sort());
-    expect((await board()).queues[0]).toEqual(['Ava+Noor', 'Leo']);
-    expect((await as('Noor', 'get_state')).invites).toEqual([]);
+    expect((await board()).queues[0]).toEqual(['Leo']);
+    expect((await as('Ava', 'get_state')).readyTeammate).toEqual({ id: P.Noor, name: 'Noor' });
+    expect((await as('Noor', 'get_state'))).toMatchObject({ readyTeammate: { id: P.Ava, name: 'Ava' }, invites: [] });
+    expect((await as('Leo', 'get_state')).readyTeammate).toBeNull();
     await expect(as('Ava', 'respond_invite', { p_id: invite.id, p_accept: true })).rejects.toThrow('Invite not found.');
+    await as('Noor', 'join_queue', { p_court: 0 });
+    expect((await board()).queues[0]).toEqual(['Leo', 'Ava+Noor']);
+    expect((await as('Ava', 'get_state')).readyTeammate).toBeNull();
+  });
+
+  test('an open side stays empty on acceptance and a rejected placement keeps the team', async () => {
+    await as('Admin', 'invite_player', { p_user: P.Ava });
+    const [invite] = (await as('Ava', 'get_state')).invites;
+    await as('Ava', 'respond_invite', { p_id: invite.id, p_accept: true });
+    expect((await board()).courts[1]).toBe('a: Kai | b: ');
+    await expect(as('Admin', 'join_court', { p_court: 1, p_side: 'a' })).rejects.toThrow('That side is full.');
+    expect((await as('Admin', 'get_state')).readyTeammate?.id).toBe(P.Ava);
+    await as('Ava', 'join_court', { p_court: 1, p_side: 'b' });
+    expect((await board()).courts[1]).toBe('a: Kai | b: Admin+Ava');
+  });
+
+  test('either teammate can leave the off-board team and invite again', async () => {
+    await as('Admin', 'invite_player', { p_user: P.Ava });
+    const [invite] = (await as('Ava', 'get_state')).invites;
+    await as('Ava', 'respond_invite', { p_id: invite.id, p_accept: true });
+    expect(await as('Admin', 'invite_candidates')).toEqual([]);
+    await as('Ava', 'leave_ready_team');
+    expect((await as('Admin', 'get_state')).readyTeammate).toBeNull();
+    expect(await as('Admin', 'invite_candidates')).toContainEqual({ id: P.Ava, name: 'Ava' });
   });
 
   test('decline and sender cancellation leave both placements alone', async () => {
