@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import './style.css';
-import { adminButtons, buttonState, courtLayout, courtSlots, dropAction, findEntry, isLive, justCalledUp, myPlace, nameOf, pairAction, placeLabel, queueRows, resolveSide, spotsLabel, teamName, validSelection, waitingLabel } from './logic.js';
+import { adminButtons, buttonState, capOf, courtLayout, courtSlots, dropAction, findEntry, isLive, myPlace, nameOf, pairAction, placeLabel, queueRows, resolveSide, spotsLabel, teamName, validSelection, waitingLabel } from './logic.js';
 import { courtArt, esc, racket } from './pixel.js';
 
 const URL = import.meta.env.VITE_SUPABASE_URL, KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -21,7 +21,10 @@ const RPC = {
   leave: ['leave_queue', () => ({})],
   switchCourt: ['switch_court', b => ({ p_court: b.court, p_side: b.side ?? null })],
   moveQueue: ['move_queue', b => ({ p_court: b.court })],
-  joinTeam: ['join_team', b => ({ p_entry: b.entryId })],
+  invite: ['invite_player', b => ({ p_user: b.userId })],
+  candidates: ['invite_candidates', () => ({})],
+  respond: ['respond_invite', b => ({ p_id: b.id, p_accept: b.accept })],
+  cancelInvite: ['cancel_invite', b => ({ p_id: b.id })],
   win: ['report_win', b => ({ p_court: b.court, p_side: b.side })],
   // admin
   place: ['admin_place', b => ({ p_court: b.court, p_side: b.side, p_entry: b.entryId ?? null, p_user: b.userId ?? null })],
@@ -40,38 +43,104 @@ const RPC = {
 };
 const api = async (k, b = {}) => { const [fn, m] = RPC[k]; const { data, error } = await sb.rpc(fn, m(b)); if (error) throw new Error(error.message); return data; };
 
-let S = null, mode = 'login', authErr = '', authMsg = '', booted = false, busy = false;
+let S = null, mode = 'login', authErr = '', authMsg = '', booted = false;
+let requestId = 0, loadingRequest = null, sessionUser = null, signingOut = false, mutation = null;
+let pendingRender = false;
 let sel = null;          // {kind:'court', court, side} | {kind:'entry', id} | null
-let place;               // where I was at the last load (undefined until the first load)
-let calledUp = null;     // court number for the "you're up" screen, or null
-let movedMyself = false; // set after my own action, so stepping onto a court myself is not announced as "you're up"
-let adminMode = false, settingsOpen = false, resetStep = 0;
-let picker = null, players = null, pickerQuery = '', resetWord = '';  // admin player list: what it's for, every account once loaded, the search
+let adminMode = false, visibleInviteId = null;
+// Only one dialog can be open: settings (with optional reset confirmation), or a player picker.
+let dialog = null;
 let drag = null;          // admin drag in progress: {src, label, x, y, pointerId, touch, timer, active, ghost, over}
 let swallowClick = false; // true right after a drop, so the click that follows doesn't also select something
 const adminOn = () => adminMode && !!S?.me?.isAdmin;
+const incoming = state => state?.invites?.filter(invite => invite.to === state.me?.id) ?? [];
 
 let toastT; const toast = m => { const t = document.getElementById('toast'); t.textContent = m; t.className = 'show'; clearTimeout(toastT); toastT = setTimeout(() => t.className = '', 3500); };
 
 async function load(force) {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) S = null;
-  else { try { S = await api('state'); } catch (e) { toast(e.message); } }
-  if (S?.me) {
-    const now = myPlace(S);
-    if (justCalledUp(place, now) && !movedMyself) { calledUp = now.court; sel = null; navigator.vibrate?.([200, 100, 200]); }
-    place = now; movedMyself = false;
-    sel = validSelection(S, sel);
+  if (signingOut || (!force && loadingRequest !== null)) return;
+  const request = ++requestId;
+  loadingRequest = request;
+  try {
+    const { data: { session }, error } = await sb.auth.getSession();
+    if (request !== requestId) return;
+    const user = session?.user.id ?? null;
+    const changedUser = user !== sessionUser;
+    if (changedUser) {
+      sessionUser = user;
+      S = dialog = sel = mutation = null;
+      adminMode = false;
+      visibleInviteId = null;
+      endDrag();
+      if (booted) render();
+    }
+    if (error) throw error;
+    const next = user ? await api('state') : null;
+    if (request !== requestId || (next?.me && next.me.id !== user)) return;
+    const changedAdmin = S?.me?.isAdmin !== next?.me?.isAdmin;
+    if (changedAdmin && !next?.me?.isAdmin) {
+      adminMode = false;
+      if (dialog && dialog.kind !== 'invite') dialog = null;
+      if (sel?.user) sel = null;
+      endDrag();
+    }
+    const invites = incoming(next);
+    const incomingChanged = JSON.stringify(incoming(S)) !== JSON.stringify(invites);
+    if (!invites.some(invite => invite.id === visibleInviteId)) visibleInviteId = invites[0]?.id ?? null;
+    if (JSON.stringify(S) !== JSON.stringify(next)) pendingRender = true;
+    S = next;
+    sel = S?.me ? validSelection(S, sel) : null;
+    const wasBooted = booted;
+    booted = true;
+    const editing = document.activeElement?.matches('input, select, textarea');
+    if (force || !wasBooted || changedAdmin || (incomingChanged && !dialog) || (pendingRender && !editing)) render();
+  } catch (error) {
+    if (request !== requestId) return;
+    booted = true;
+    if (!S) render();
+    toast(error.message);
+  } finally {
+    if (loadingRequest === request) loadingRequest = null;
   }
-  booted = true;
-  if (force || !/INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || '')) render();
 }
+
 async function act(k, b, done) {
-  if (busy) return; busy = true;
-  let ok = false;
-  try { await api(k, b); sel = null; movedMyself = true; ok = true; } catch (e) { toast(e.message); } finally { busy = false; }
-  await load(true);
-  if (ok && done) toast(done);
+  if (mutation || signingOut) return false;
+  const current = {};
+  mutation = current;
+  try {
+    await api(k, b);
+    if (mutation !== current || signingOut) return false;
+    sel = null;
+    await load(true);
+    if (mutation !== current || signingOut) return false;
+    if (done) toast(done);
+    return true;
+  } catch (error) {
+    if (mutation === current && !signingOut) {
+      toast(error.message);
+      await load(true);
+    }
+    return false;
+  } finally {
+    if (mutation === current) mutation = null;
+  }
+}
+
+async function signOut() {
+  if (signingOut) return;
+  signingOut = true;
+  requestId++;
+  mutation = null;
+  try {
+    const { error } = await sb.auth.signOut();
+    if (error) toast(error.message);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    signingOut = false;
+    await load(true);
+  }
 }
 
 // ---- views ----
@@ -106,7 +175,7 @@ function courtBlock(court, c, preview) {
   }).join('')}</div>` : '';
   return `<section class="court-col">
     <button type="button" class="court${picked ? ' sel' : ''}" data-act="pickCourt" data-court="${c}" aria-pressed="${picked}" aria-label="${esc(courtLabel(c, slots))}">
-      <span class="court-head"><span class="title">Court ${c + 1}${S.courtModes?.[c] === 'singles' ? ' <small>Singles</small>' : ''}<span class="hint">(Click court to queue, or join a teammate in queue)</span></span>${spots ? `<span class="spots">${spots}</span>` : ''}</span>
+      <span class="court-head"><span class="title">Court ${c + 1}${S.courtModes?.[c] === 'singles' ? ' <small>Singles</small>' : ''}<span class="hint">Tap to join or queue</span></span>${spots ? `<span class="spots">${spots}</span>` : ''}</span>
       ${courtArt(courtLayout(S, c, preview), id => nameOf(S, id), isLive(court), S.me.id)}
     </button>
     <div class="next" data-court="${c}"><div class="next-head"><span>Up next</span><span class="mute">${waitingLabel(S, c)}</span></div>${list}</div>
@@ -123,12 +192,6 @@ function actionBar(st) {
   return `<div class="bar${st.buttons.length > 1 ? ' stack' : ''}">${st.buttons.map(button).join('')}</div>`;
 }
 
-function upView() {
-  if (calledUp === null) return '';
-  return `<button type="button" class="up" data-act="closeUp" aria-label="You're up on Court ${calledUp + 1}. Tap to close.">
-    <span class="up-title">You’re up,<br>baddie!</span><span class="up-court">Court ${calledUp + 1}</span></button>`;
-}
-
 function adminStrip() {
   if (!adminOn()) return '';
   return `<div class="admin-strip"><p><b>Admin mode.</b> Drag players onto a side, onto someone to swap, into a queue, or to the bin (on a phone, press and hold first). Tap a player to team them up, split them, or remove them.</p>
@@ -137,52 +200,110 @@ function adminStrip() {
 
 function resetView() {
   const n = S.queue.concat(...S.courts.flatMap(c => [c.a, c.b])).reduce((sum, e) => sum + e.members.length, 0);
-  if (!resetStep) {
+  if (dialog.resetWord === null) {
     return `<div class="danger"><h3>Practice reset</h3><p class="mute">Take everyone off every court and out of every queue.</p>
       <button type="button" class="chip-btn warn" data-act="resetStart">Clear all courts and queues…</button></div>`;
   }
   return `<div class="danger confirm" role="alert"><h3>Clear everything?</h3>
     <p>This removes all ${n} ${n === 1 ? 'player' : 'players'} from every court and queue. It can't be undone.</p>
-    <label>Type <b>CLEAR</b> to confirm<input type="text" data-input="resetWord" value="${esc(resetWord)}" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+    <label>Type <b>CLEAR</b> to confirm<input type="text" data-input="resetWord" value="${esc(dialog.resetWord)}" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
     <div class="row-btns"><button type="button" class="chip-btn" data-act="resetCancel">Cancel</button>
-      <button type="button" class="chip-btn warn" data-act="resetDo" aria-disabled="${resetWord.trim() !== 'CLEAR'}">Clear all courts and queues</button></div></div>`;
+      <button type="button" class="chip-btn warn" data-act="resetDo" aria-disabled="${dialog.resetWord.trim() !== 'CLEAR'}">Clear all courts and queues</button></div></div>`;
 }
 
 function pickerView() {
-  if (!picker || !adminOn()) return '';
-  const swap = picker.mode === 'swap';
+  const picker = dialog;
+  if (!picker || picker.kind === 'settings') return '';
+  const invite = picker.kind === 'invite', swap = picker.kind === 'swap';
   const skip = swap ? new Set(findEntry(S, e => e.members.includes(picker.user))?.entry.members ?? [picker.user]) : new Set();
-  const q = pickerQuery.trim().toLowerCase();
-  const list = players === null ? '<p class="mute">Loading players…</p>'
-    : players.filter(p => !skip.has(p.id)).map(p => {
-      const key = `${p.name} ${p.email}`.toLowerCase();
-      return `<li${q && !key.includes(q) ? ' hidden' : ''}><button type="button" class="pick" data-act="pickPick" data-user="${esc(p.id)}" data-search="${esc(key)}">
-        <b>${esc(p.name)}</b><span class="mute">${esc(placeLabel(S, p.id))}</span></button></li>`;
-    }).join('');
-  const name = swap ? nameOf(S, picker.user) : '';
-  const title = swap ? `Swap ${esc(name)} with…` : `Add to Court ${picker.court + 1}`;
-  const help = swap
-    ? `They trade places, teammates included. Pick someone who isn't signed up and they take ${esc(name)}'s spot while ${esc(name)} leaves.`
-    : `${picker.side === 'a' ? 'Left' : 'Right'} side. Players already on a court or in line move here; a teammate in line keeps their spot.`;
+  const pending = new Set((S.invites ?? []).map(i => i.from === S.me.id ? i.to : i.from));
+  const players = picker.players.filter(p => !skip.has(p.id) && (!invite || !pending.has(p.id)));
+  const q = picker.query.trim().toLowerCase();
+  let hasMatches = false;
+  const list = players.map(p => {
+    const key = (invite ? p.name : `${p.name} ${p.email}`).toLowerCase();
+    const match = key.includes(q);
+    hasMatches ||= match;
+    return `<li${match ? '' : ' hidden'}><button type="button" class="pick" data-act="pickPick" data-user="${esc(p.id)}" data-search="${esc(key)}">
+      <b>${esc(p.name)}</b><span class="mute">${invite ? 'Invite' : esc(placeLabel(S, p.id))}</span></button></li>`;
+  }).join('');
+  const name = swap ? esc(nameOf(S, picker.user)) : '';
+  const title = invite ? 'Invite a teammate' : swap ? `Swap ${name} with…` : `Add to Court ${picker.court + 1}`;
+  const help = invite ? 'Choose a player. You’ll team up when they accept.'
+    : swap ? `They trade places, teammates included. Pick someone who isn't signed up and they take ${name}'s spot while ${name} leaves.`
+      : `${picker.side === 'a' ? 'Left' : 'Right'} side. Players already on a court or in line move here; a teammate in line keeps their spot.`;
+  const results = picker.status === 'loading' ? '<p class="mute" role="status">Loading players…</p>'
+    : picker.status === 'error' ? `<p class="err" role="alert">${esc(picker.error)}</p>`
+      : `<ul class="picks" data-scroll="picks">${list}</ul>
+        <p class="mute" data-empty-picks${hasMatches ? ' hidden' : ''}>${players.length ? 'No matching players.' : 'No available players.'}</p>`;
+  const sent = invite ? (S.invites ?? []).filter(i => i.from === S.me.id) : [];
+  const sentInvites = sent.length ? `<div class="sent-invites"><h3>Awaiting acceptance</h3><ul>
+    ${sent.map(i => `<li><span>${esc(nameOf(S, i.to))}</span><button type="button" class="link" data-act="cancelInvite" data-id="${esc(i.id)}" aria-label="Cancel invite to ${esc(nameOf(S, i.to))}">Cancel</button></li>`).join('')}
+    </ul></div>` : '';
   return `<div class="sheet-wrap"><button type="button" class="scrim" data-act="closePicker" aria-label="Close player list"></button>
     <section class="panel sheet" data-scroll="picker" role="dialog" aria-modal="true" aria-labelledby="picker-title">
-      <div class="sheet-head"><h2 id="picker-title">${title}</h2><button type="button" class="chip-btn" data-act="closePicker">Cancel</button></div>
+      <div class="sheet-head"><h2 id="picker-title">${title}</h2><button type="button" class="chip-btn" data-act="closePicker">Close</button></div>
       <p class="mute">${help}</p>
-      <input type="search" data-input="pickerSearch" value="${esc(pickerQuery)}" placeholder="Search by name or email" aria-label="Search players">
-      <ul class="picks" data-scroll="picks">${list}</ul>
+      <input type="search" data-input="pickerSearch" value="${esc(picker.query)}" placeholder="${invite ? 'Search by name' : 'Search by name or email'}" aria-label="Search players">
+      ${results}${sentInvites}
     </section></div>`;
 }
 
-/** @param {{mode: 'seat', court: number, side: 'a'|'b'} | {mode: 'swap', user: string}} what */
-async function openPicker(what) {
-  picker = what; players = null; pickerQuery = ''; sel = null; render();
-  try { players = await api('players'); } catch (x) { toast(x.message); picker = null; }
-  render();
+function openPicker(what) {
+  const picker = { ...what, status: 'loading', query: '', players: [] };
+  dialog = picker; sel = null; render();
   $app.querySelector('[data-input="pickerSearch"]')?.focus();
+  loadPicker(picker);
+}
+
+async function loadPicker(picker) {
+  try {
+    picker.players = await api(picker.kind === 'invite' ? 'candidates' : 'players');
+    picker.status = 'ready';
+  } catch (error) {
+    picker.status = 'error';
+    picker.error = error.message;
+  }
+  if (dialog === picker) render();
+}
+
+function closeDialog() {
+  const kind = dialog?.kind;
+  dialog = null;
+  render();
+  if (kind === 'invite') $app.querySelector('[data-act="openInvite"]')?.focus();
+}
+
+function inviteBanner() {
+  const invites = incoming(S);
+  if (!invites.length) return '';
+  const index = Math.max(0, invites.findIndex(invite => invite.id === visibleInviteId));
+  const invite = invites[index];
+  const arrow = (direction, label, glyph) => `<button type="button" class="invite-arrow" data-act="${direction}" aria-label="${label}">${glyph}</button>`;
+  const multiple = invites.length > 1;
+  return `<section class="invite-banner${multiple ? ' multiple' : ''}" aria-label="Pending teammate invitations">
+    ${multiple ? arrow('prevInvite', 'Previous invite', '‹') : ''}
+    <p aria-live="polite"><strong>${esc(nameOf(S, invite.from))}</strong> invited you to team up${invite.court == null ? '' : ` on Court ${invite.court + 1}`}.
+      ${multiple ? `<span class="invite-count">${index + 1} of ${invites.length}</span>` : ''}</p>
+    <div class="invite-actions">
+      <button type="button" class="chip-btn invite-primary" data-act="acceptInvite" data-id="${esc(invite.id)}">Accept</button>
+      <button type="button" class="chip-btn" data-act="declineInvite" data-id="${esc(invite.id)}">Decline</button>
+    </div>
+    ${multiple ? arrow('nextInvite', 'Next invite', '›') : ''}
+  </section>`;
+}
+
+function cycleInvite(offset, action) {
+  const invites = incoming(S);
+  if (invites.length < 2) return;
+  const index = Math.max(0, invites.findIndex(invite => invite.id === visibleInviteId));
+  visibleInviteId = invites[(index + offset + invites.length) % invites.length].id;
+  render();
+  $app.querySelector(`[data-act="${action}"]`)?.focus({ preventScroll: true });
 }
 
 function settingsView() {
-  if (!settingsOpen || !adminOn()) return '';
+  if (dialog?.kind !== 'settings' || !adminOn()) return '';
   const admins = S.admins?.list ?? [];
   return `<div class="sheet-wrap"><button type="button" class="scrim" data-act="closeSettings" aria-label="Close settings"></button>
     <section class="panel sheet" data-scroll="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -200,11 +321,17 @@ function mainView() {
   const adm = adminOn(), picking = adm && (sel?.kind === 'player' || sel?.kind === 'pairWith');
   const st = picking ? adminButtons(S, sel) : buttonState(S, sel), dim = sel && !picking;
   const adminBtn = S.me.isAdmin ? `<button type="button" class="signout${adm ? ' on' : ''}" data-act="admin" aria-pressed="${adm}">Admin</button>` : '';
-  return `<div class="board${dim ? ' has-sel' : ''}${adm ? ' admin' : ''}${sel?.kind === 'pairWith' ? ' pairing' : ''}"><header class="top">${WORDMARK}<div class="top-actions">${adminBtn}<button type="button" class="signout" data-act="out">Sign out</button></div></header>
+  const place = myPlace(S);
+  const canInvite = !place || (place.where === 'queue' && place.entry.members.length === 1 && capOf(S, place.court) === 2);
+  const hasSent = S.invites?.some(i => i.from === S.me.id);
+  const invite = `<button type="button" class="signout" data-act="openInvite"${canInvite || hasSent ? '' : ' disabled title="Invites are available when off court, unpaired, and outside a singles queue"'}>Invite</button>`;
+  return `<div class="board${dim ? ' has-sel' : ''}${adm ? ' admin' : ''}${sel?.kind === 'pairWith' ? ' pairing' : ''}"${dialog ? ' inert' : ''}>
+    ${inviteBanner()}
+    <header class="top">${WORDMARK}<div class="top-actions">${invite}${adminBtn}<button type="button" class="signout" data-act="out">Sign out</button></div></header>
     ${adminStrip()}
     <div class="courts">${S.courts.map((court, c) => courtBlock(court, c, st?.preview)).join('')}</div>
     ${dim ? '<button type="button" class="scrim" data-act="clear" aria-label="Close selection"></button>' : ''}
-    ${actionBar(st)}${adm ? '<div class="bin" aria-hidden="true">Drop here to remove</div>' : ''}</div>${settingsView()}${pickerView()}${upView()}`;
+    ${actionBar(st)}${adm ? '<div class="bin" aria-hidden="true">Drop here to remove</div>' : ''}</div>${settingsView()}${pickerView()}`;
 }
 
 /** Which half of the court was tapped: a "+" spot's own side, else the half under the pointer (null for keyboard). */
@@ -217,14 +344,21 @@ function tappedSide(e, courtButton) {
   return e.clientX < art.left + art.width / 2 ? 'a' : 'b';
 }
 
-let pendingRender = false;
 function render() {
   if (!booted) return;
   if (drag?.active) { pendingRender = true; return; }  // never rebuild the board under a drag
+  pendingRender = false;
+  const active = document.activeElement;
+  const focusedInput = active?.dataset.input;
   const scrolls = [...$app.querySelectorAll('[data-scroll]')].map(el => [el.dataset.scroll, el.scrollTop]);
   $app.innerHTML = S && S.me ? mainView() : authView();
   for (const [k, top] of scrolls) { const el = $app.querySelector(`[data-scroll="${k}"]`); if (el) el.scrollTop = top; }
   if (sel?.user) $app.querySelectorAll(`[data-user="${CSS.escape(sel.user)}"]`).forEach(el => el.classList.add('picked'));
+  if (focusedInput) {
+    const input = $app.querySelector(`[data-input="${CSS.escape(focusedInput)}"]`);
+    input?.focus({ preventScroll: true });
+    if (input && active.selectionStart !== null) input.setSelectionRange(active.selectionStart, active.selectionEnd);
+  }
 }
 
 // ---- events ----
@@ -233,7 +367,7 @@ function render() {
 function adminTap(e) {
   if (e.target.closest('.bar, .admin-strip, .top')) return false;
   const open = e.target.closest('.open[data-side]');
-  if (open && sel?.kind !== 'pairWith') { openPicker({ mode: 'seat', court: +open.closest('.court').dataset.court, side: open.dataset.side }); return true; }
+  if (open && sel?.kind !== 'pairWith') { openPicker({ kind: 'seat', court: +open.closest('.court').dataset.court, side: open.dataset.side }); return true; }
   let user = e.target.closest('.tag[data-user]:not(.preview), .mem[data-user], .tm[data-user]')?.dataset.user;
   if (!user && sel?.kind === 'pairWith') {  // a tap on a single's row also counts as that player
     const row = e.target.closest('.row[data-id]'), found = row && findEntry(S, x => x.id === row.dataset.id);
@@ -256,7 +390,7 @@ function underScrim(e) {
 
 $app.addEventListener('click', e => {
   if (swallowClick) { swallowClick = false; e.preventDefault(); e.stopPropagation(); return; }  // the click that ends a drag
-  if (adminOn() && !settingsOpen && !picker && adminTap(e)) return;
+  if (adminOn() && !dialog && adminTap(e)) return;
   let b = e.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'clear') b = underScrim(e) || b;
   const d = b.dataset;
@@ -264,29 +398,44 @@ $app.addEventListener('click', e => {
     pickCourt: () => { const c = +d.court; sel = { kind: 'court', court: c, side: resolveSide(S, c, tappedSide(e, b)) }; render(); },
     pickEntry: () => { sel = sel?.kind === 'entry' && sel.id === d.id ? null : { kind: 'entry', id: d.id }; render(); },
     clear: () => { sel = null; render(); },
-    do: () => act(d.k, JSON.parse(d.b)),
-    closeUp: () => { calledUp = null; render(); },
-    out: async () => { await sb.auth.signOut(); S = null; sel = null; place = undefined; calledUp = null; adminMode = settingsOpen = false; render(); },
-    mode: () => { mode = mode === 'login' ? 'register' : 'login'; authErr = authMsg = ''; render(); },
-    admin: () => { adminMode = !adminMode; settingsOpen = false; sel = null; render(); },
-    settings: () => { settingsOpen = true; sel = null; render(); },
-    pickPick: () => {
-      const what = picker; picker = null;
-      const who = players?.find(p => p.id === d.user)?.name ?? nameOf(S, d.user);
-      if (what.mode === 'swap') act('swap', { a: what.user, b: d.user }, `Swapped ${nameOf(S, what.user)} and ${who}`);
-      else act('seat', { court: what.court, side: what.side, userId: d.user }, `Moved ${who} to Court ${what.court + 1}`);
+    do: () => {
+      const args = JSON.parse(d.b);
+      act(d.k, args, d.k === 'invite' ? `Invite sent to ${nameOf(S, args.userId)}` : undefined);
     },
-    swapPick: () => { if (sel?.user) openPicker({ mode: 'swap', user: sel.user }); },
-    closePicker: () => { picker = null; render(); },
-    resetStart: () => { resetStep = 1; resetWord = ''; render(); $app.querySelector('[data-input="resetWord"]')?.focus(); },
-    resetCancel: () => { resetStep = 0; render(); },
-    resetDo: () => {
-      if (b.getAttribute('aria-disabled') === 'true') return;
-      resetStep = 0; settingsOpen = false;
-      act('reset', { confirm: 'CLEAR' }, 'All courts and queues are cleared');
+    out: signOut,
+    mode: () => { mode = mode === 'login' ? 'register' : 'login'; authErr = authMsg = ''; render(); },
+    admin: () => { adminMode = !adminMode; sel = null; render(); },
+    settings: () => { dialog = { kind: 'settings', resetWord: null }; sel = null; render(); $app.querySelector('[data-act="closeSettings"]:not(.scrim)')?.focus(); },
+    openInvite: () => openPicker({ kind: 'invite' }),
+    prevInvite: () => cycleInvite(-1, d.act),
+    nextInvite: () => cycleInvite(1, d.act),
+    acceptInvite: () => act('respond', { id: d.id, accept: true }, 'You’re teammates'),
+    declineInvite: () => act('respond', { id: d.id, accept: false }, 'Invite declined'),
+    cancelInvite: async () => {
+      const picker = dialog;
+      if (await act('cancelInvite', { id: d.id }, 'Invite cancelled') && dialog === picker) loadPicker(picker);
+    },
+    pickPick: async () => {
+      const picker = dialog;
+      const player = picker?.players?.find(p => p.id === d.user);
+      if (!player) return;
+      let ok;
+      if (picker.kind === 'invite') ok = await act('invite', { userId: d.user }, `Invite sent to ${player.name}`);
+      else if (picker.kind === 'swap') ok = await act('swap', { a: picker.user, b: d.user }, `Swapped ${nameOf(S, picker.user)} and ${player.name}`);
+      else ok = await act('seat', { court: picker.court, side: picker.side, userId: d.user }, `Moved ${player.name} to Court ${picker.court + 1}`);
+      if (ok && dialog === picker) closeDialog();
+    },
+    swapPick: () => { if (sel?.user) openPicker({ kind: 'swap', user: sel.user }); },
+    closePicker: closeDialog,
+    resetStart: () => { dialog.resetWord = ''; render(); $app.querySelector('[data-input="resetWord"]')?.focus(); },
+    resetCancel: () => { dialog.resetWord = null; render(); },
+    resetDo: async () => {
+      const settings = dialog;
+      if (settings.resetWord?.trim() !== 'CLEAR') return;
+      if (await act('reset', { confirm: 'CLEAR' }, 'All courts and queues are cleared') && dialog === settings) closeDialog();
     },
     pairStart: () => { if (sel?.user) { sel = { kind: 'pairWith', user: sel.user }; render(); } },
-    closeSettings: () => { settingsOpen = false; resetStep = 0; render(); },
+    closeSettings: closeDialog,
     loser: () => act('loser', { loserBack: b.checked }, b.checked ? 'Losers now rejoin the queue' : 'Losers now leave the court'),
     rmAdmin: () => {
       const self = d.email === S.me.email?.toLowerCase();
@@ -298,8 +447,9 @@ $app.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (drag) { endDrag(); return; }
-  if (!sel && calledUp === null && !settingsOpen && !picker) return;
-  sel = null; calledUp = null; settingsOpen = false; resetStep = 0; picker = null; render();
+  if (dialog) { closeDialog(); return; }
+  if (!sel) return;
+  sel = null; render();
 });
 
 // ---- admin drag and drop: pointer events, so it works with a mouse and (after a press and hold) on touch ----
@@ -384,7 +534,7 @@ function endDrag(drop = false) {
 }
 
 $app.addEventListener('pointerdown', e => {
-  if (!adminOn() || settingsOpen || picker || drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  if (!adminOn() || dialog || drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
   const s = dragSource(e.target); if (!s) return;
   const touch = e.pointerType !== 'mouse';
   drag = { ...s, x: e.clientX, y: e.clientY, pointerId: e.pointerId, touch, active: false };
@@ -405,11 +555,14 @@ $app.addEventListener('contextmenu', e => { if (adminOn() && dragSource(e.target
 $app.addEventListener('input', e => {
   const k = e.target.dataset.input;
   if (k === 'pickerSearch') {
-    pickerQuery = e.target.value;
-    const q = pickerQuery.trim().toLowerCase();
-    $app.querySelectorAll('.pick[data-search]').forEach(b => { b.parentElement.hidden = !!q && !b.dataset.search.includes(q); });
+    dialog.query = e.target.value;
+    const q = dialog.query.trim().toLowerCase();
+    const picks = [...$app.querySelectorAll('.pick[data-search]')];
+    for (const pick of picks) pick.parentElement.hidden = !pick.dataset.search.includes(q);
+    const empty = $app.querySelector('[data-empty-picks]');
+    if (empty) empty.hidden = picks.some(pick => !pick.parentElement.hidden);
   }
-  if (k === 'resetWord') { resetWord = e.target.value; $app.querySelector('[data-act="resetDo"]')?.setAttribute('aria-disabled', String(resetWord.trim() !== 'CLEAR')); }
+  if (k === 'resetWord') { dialog.resetWord = e.target.value; $app.querySelector('[data-act="resetDo"]')?.setAttribute('aria-disabled', String(dialog.resetWord.trim() !== 'CLEAR')); }
 });
 
 $app.addEventListener('submit', async e => {
@@ -441,6 +594,6 @@ $app.addEventListener('submit', async e => {
 // ---- live updates: Supabase Realtime, plus a slow poll as a safety net ----
 let t; const poke = () => { clearTimeout(t); t = setTimeout(() => load(false), 150); };
 const ch = sb.channel('queue'); ['entries', 'entry_members', 'invites'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, poke)); ch.subscribe();
-sb.auth.onAuthStateChange(() => load(true));
+sb.auth.onAuthStateChange(() => { setTimeout(() => load(true), 0); });
 setInterval(() => load(false), 6000);
 load(true);

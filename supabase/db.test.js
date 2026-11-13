@@ -1,7 +1,7 @@
 // Runs the real schema + migrations in an in-memory Postgres (PGlite). Nothing here touches the live project.
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, readdirSync } from 'node:fs';
-import { beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { addPlayers, createDb, rpc, signInAs } from '../src/dev/db.js';
 
 const dir = new URL('.', import.meta.url);
@@ -36,6 +36,12 @@ beforeEach(async () => {
   for (const who of ['Ava', 'Leo', 'Noor']) await put([who], null, null, 0);
   await put(['Kai'], 1, 'a');
 });
+
+afterEach(async () => {
+  await db?.close();
+  db = undefined;
+});
+
 /** Seed one entry (a single or a team) straight into the tables. */
 async function put(members, court, side, queueCourt = court) {
   const { rows: [{ id }] } = await db.query('insert into entries (court, side, queue_court) values ($1, $2, $3) returning id', [court, side, queueCourt]);
@@ -66,7 +72,7 @@ describe('admin_place', () => {
   });
 
   test('moving one player of a pair leaves the partner where they were; the half-empty side waits', async () => {
-    await as('Leo', 'join_team', { p_entry: (await entryOf('Ava')).id });  // Ava + Leo team up in Court 1's queue
+    await admin('admin_pair', { p_user: P.Leo, p_target: P.Ava });
     await admin('admin_place', { p_court: 1, p_side: 'a', p_user: P.Jon });  // Jon leaves his pair for Kai's side
     const b = await board();
     expect(b.courts[1]).toBe('a: Jon, Kai | b: ');
@@ -314,5 +320,62 @@ describe('swap with anyone', () => {
   test('two players without a spot cannot swap', async () => {
     await admin('admin_kick', { p_user: P.Noor });
     await expect(admin('admin_swap', { p_a: P.Noor, p_b: P.Admin })).rejects.toThrow('Neither player has a spot.');
+  });
+});
+
+describe('player invitations', () => {
+  test('only eligible players appear, with names and IDs but no email addresses', async () => {
+    expect(await as('Ava', 'invite_candidates')).toEqual(['Admin', 'Leo', 'Noor'].map(name => ({ id: P[name], name })));
+    expect(await as('Kai', 'invite_candidates')).toEqual([]);
+    await db.exec('update settings set singles_courts = array[0]');
+    expect(await as('Ava', 'invite_candidates')).toEqual([]);
+  });
+
+  test('the recipient must accept before the pair takes the earlier queue spot', async () => {
+    await as('Noor', 'invite_player', { p_user: P.Ava });
+    const [invite] = (await as('Ava', 'get_state')).invites;
+    expect(invite).toMatchObject({ from: P.Noor, to: P.Ava });
+    expect((await as('Leo', 'get_state')).invites).toEqual([]);
+    expect((await entryOf('Ava')).members).toEqual([P.Ava]);
+    expect(await as('Ava', 'invite_candidates')).not.toContainEqual({ id: P.Noor, name: 'Noor' });
+    await expect(as('Noor', 'respond_invite', { p_id: invite.id, p_accept: true })).rejects.toThrow('Invite not found.');
+    await expect(as('Ava', 'respond_invite', { p_id: invite.id, p_accept: null })).rejects.toThrow('Choose whether');
+    await as('Ava', 'respond_invite', { p_id: invite.id, p_accept: true });
+    expect((await entryOf('Ava')).members.sort()).toEqual([P.Ava, P.Noor].sort());
+    expect((await board()).queues[0]).toEqual(['Ava+Noor', 'Leo']);
+    expect((await as('Noor', 'get_state')).invites).toEqual([]);
+    await expect(as('Ava', 'respond_invite', { p_id: invite.id, p_accept: true })).rejects.toThrow('Invite not found.');
+  });
+
+  test('decline and sender cancellation leave both placements alone', async () => {
+    const before = (await board()).queues;
+    await as('Leo', 'invite_player', { p_user: P.Ava });
+    const [invite] = (await as('Ava', 'get_state')).invites;
+    await expect(as('Ava', 'cancel_invite', { p_id: invite.id })).rejects.toThrow('Invite not found.');
+    await as('Ava', 'respond_invite', { p_id: invite.id, p_accept: false });
+    await as('Leo', 'invite_player', { p_user: P.Ava });
+    const [secondInvite] = (await as('Leo', 'get_state')).invites;
+    await as('Leo', 'cancel_invite', { p_id: secondInvite.id });
+    expect((await as('Ava', 'get_state')).invites).toEqual([]);
+    expect((await board()).queues).toEqual(before);
+  });
+
+  test('eligibility is checked again if an invited player goes on court', async () => {
+    await as('Ava', 'invite_player', { p_user: P.Admin });
+    const [invite] = (await as('Admin', 'get_state')).invites;
+    await as('Admin', 'join_court', { p_court: 1, p_side: 'b' });
+    await expect(as('Admin', 'respond_invite', { p_id: invite.id, p_accept: true })).rejects.toThrow('Both players must be off court');
+    expect((await entryOf('Ava')).members).toEqual([P.Ava]);
+    await as('Admin', 'respond_invite', { p_id: invite.id, p_accept: false });
+  });
+
+  test('authenticated users can use the invitation API while unilateral pairing and lookup are private', async () => {
+    const { rows: [rights] } = await db.query(`select
+      has_function_privilege('authenticated', 'invite_candidates()', 'execute') as candidates,
+      has_function_privilege('authenticated', 'invite_player(uuid)', 'execute') as invite,
+      has_function_privilege('anon', 'invite_candidates()', 'execute') as anon,
+      has_function_privilege('authenticated', 'join_team(uuid)', 'execute') as join,
+      has_function_privilege('authenticated', 'send_invite(text,uuid,integer,text)', 'execute') as lookup`);
+    expect(rights).toEqual({ candidates: true, invite: true, anon: false, join: false, lookup: false });
   });
 });

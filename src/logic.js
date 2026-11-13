@@ -120,7 +120,10 @@ function entryButtons(S, id, place) {
   if (entry.queueCourt != null && capOf(S, entry.queueCourt) === 1) return one(off('Singles queue'));
   if (place?.where === 'court') return one(off('Finish your game first'));
   if (place && place.entry.members.length > 1) return one(off('You already have a partner'));
-  return one(go('Join team', 'joinTeam', { entryId: id }));
+  if (place && capOf(S, place.court) === 1) return one(off('Leave the singles queue first'));
+  const userId = entry.members[0];
+  if (S.invites?.some(invite => invite.from === userId || invite.to === userId)) return one(off('Invite already pending'));
+  return one(go('Invite to team', 'invite', { userId }));
 }
 
 /**
@@ -143,9 +146,6 @@ export const validSelection = (S, sel) => {
   if (sel?.kind === 'player' || sel?.kind === 'pairWith') return findEntry(S, e => e.members.includes(sel.user)) ? sel : null;
   return null;
 };
-
-/** True when the player just moved from waiting onto a court. */
-export const justCalledUp = (before, after) => before?.where === 'queue' && after?.where === 'court';
 
 // ---- admin drag and drop ----
 

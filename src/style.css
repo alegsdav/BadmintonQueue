@@ -79,12 +79,6 @@ button{font:inherit;color:inherit}
 .bar.stack{flex-direction:column;align-items:center}
 .bar.stack .cta{width:100%;flex:none}
 
-/* you're up */
-.up{position:fixed;inset:0;z-index:40;margin:0;border:0;background:var(--court);color:var(--cream);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;cursor:pointer;animation:pop .3s steps(3) both}
-.up-title{font-family:var(--display);font-size:clamp(48px,14vw,96px);font-weight:600;line-height:1.05;text-shadow:4px 4px 0 var(--ink)}
-.up-court{font-size:18px;font-weight:600;background:var(--ink);color:var(--cream);padding:6px 12px}
-@keyframes pop{from{transform:scale(.9);opacity:0}to{transform:none;opacity:1}}
-
 /* sign in */
 .auth{min-height:100vh;min-height:100svh;display:grid;place-items:center;padding:16px}
 .panel{width:min(100%,400px);background:var(--card);border:2px solid var(--ink);box-shadow:var(--shadow);padding:24px;display:grid;gap:14px}
@@ -96,7 +90,7 @@ button{font:inherit;color:inherit}
 .panel .cta{max-width:none;width:100%;margin-top:4px}
 .link{justify-self:start;min-height:44px;padding:0;border:0;background:none;font-size:14px;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 
-#toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));z-index:30;transform:translate(-50%,12px);max-width:calc(100vw - 32px);background:var(--ink);color:var(--cream);border:2px solid var(--ink);box-shadow:4px 4px 0 var(--orange);padding:10px 16px;font-size:14px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s}
+#toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));z-index:40;transform:translate(-50%,12px);max-width:calc(100vw - 32px);background:var(--ink);color:var(--cream);border:2px solid var(--ink);box-shadow:4px 4px 0 var(--orange);padding:10px 16px;font-size:14px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s}
 #toast.show{opacity:1;transform:translate(-50%,0)}
 
 @media (min-width:900px){
@@ -121,8 +115,26 @@ button{font:inherit;color:inherit}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 /* ---- admin ---- */
-.top-actions{display:flex;gap:8px;flex-shrink:0}
+.top-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .signout.on{background:var(--ink);color:var(--cream)}
+.signout:disabled{opacity:.55;cursor:default}
+.invite-banner{position:sticky;top:0;z-index:22;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px 16px;padding:10px 12px;margin-top:-16px;background:#FFE27A;border-bottom:2px solid var(--ink)}
+.invite-banner.multiple{grid-template-columns:auto minmax(0,1fr) auto auto}
+.invite-banner p{margin:0;overflow-wrap:anywhere;font-size:14px}
+.invite-count{display:inline-block;margin-left:.5em;color:var(--mute);font-size:12px;white-space:nowrap}
+.invite-actions{display:flex;gap:8px}
+.invite-actions .invite-primary{background:var(--ink);color:var(--cream)}
+.invite-arrow{display:grid;place-items:center;min-width:36px;min-height:40px;padding:0;border:0;background:none;font:24px/1 var(--display);cursor:pointer}
+.invite-arrow:hover{background:var(--cream)}
+@media (min-width:900px){.invite-banner{margin-top:-32px}}
+@media (max-width:540px){
+  .invite-banner,.invite-banner.multiple{grid-template-columns:minmax(0,1fr);gap:6px}
+  .invite-banner.multiple{grid-template-columns:36px minmax(0,1fr) 36px}
+  .invite-banner.multiple p,.invite-banner.multiple .invite-actions{grid-column:2}
+  .invite-arrow{grid-row:1 / span 2;align-self:stretch}
+  .invite-arrow:last-child{grid-column:3}
+  .invite-actions{flex-wrap:wrap}
+}
 .chip-btn{min-height:40px;padding:6px 12px;background:var(--card);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink);font-size:14px;font-weight:600;cursor:pointer;flex-shrink:0}
 .chip-btn:active{transform:translate(2px,2px);box-shadow:none}
 .admin-strip{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;background:var(--ink);color:var(--cream)}
@@ -175,10 +187,10 @@ button{font:inherit;color:inherit}
   .admin-strip p{font-size:14px}
   .admin .tag:not(.preview){font-size:14px;padding:6px 10px}
 }
-/* two header buttons for admins: keep the wordmark clear on narrow phones */
 @media (max-width:420px){
+  .top{flex-wrap:wrap}
   .brand span{font-size:22px}
-  .top-actions{gap:6px}
+  .top-actions{width:100%;gap:6px;justify-content:flex-start}
   .top-actions .signout{padding:6px 9px;font-size:13px}
 }
 
@@ -201,13 +213,16 @@ button{font:inherit;color:inherit}
 .pairing .tag.team .tm:not(.picked){text-decoration:underline dashed var(--orange) 2px;text-underline-offset:2px}
 .admin .open{cursor:pointer}
 
-/* admin "+": player list */
+/* player picker */
 .sheet input[type=search]{font:16px Inter,system-ui,sans-serif;color:var(--ink);background:#fff;border:2px solid var(--ink);border-radius:0;padding:10px 12px;width:100%}
 .picks{list-style:none;margin:0;padding:0;display:grid;max-height:min(55svh,420px);overflow-y:auto;border-top:2px solid var(--rule)}
 .pick{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;min-height:48px;padding:6px 4px;border:0;border-bottom:1px solid var(--rule);background:none;text-align:left;cursor:pointer}
 .pick:hover,.pick:focus-visible{background:var(--cream)}
 .pick b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
 .pick .mute{font-size:12px;flex-shrink:0;text-align:right}
+.sent-invites{display:grid;gap:4px;border-top:2px solid var(--rule);padding-top:12px}
+.sent-invites ul{list-style:none;margin:0;padding:0}
+.sent-invites li{display:flex;align-items:center;justify-content:space-between;gap:12px;overflow-wrap:anywhere}
 
 /* practice reset */
 .danger{display:grid;gap:8px;border-top:2px solid var(--rule);padding-top:14px}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { adminButtons, buttonState, courtLayout, courtQueue, dropAction, pairAction, placeLabel, courtSlots, justCalledUp, myPlace, openSpots, queueRows, resolveSide, spotsLabel, validSelection, waitingLabel } from './logic.js';
+import { adminButtons, buttonState, courtLayout, courtQueue, dropAction, pairAction, placeLabel, courtSlots, myPlace, openSpots, queueRows, resolveSide, spotsLabel, validSelection, waitingLabel } from './logic.js';
 
 const names = { me: 'Alex', maya: 'Maya', jon: 'Jon', priya: 'Priya', sam: 'Sam', ava: 'Ava', leo: 'Leo', noor: 'Noor', kai: 'Kai' };
 const e = (id, members, queueCourt = null) => ({ id, members, queueCourt, streak: 0 });
@@ -154,8 +154,8 @@ describe('bottom buttons', () => {
     expect(labels(buttonState(state(), court(0)))).toEqual(['Join Court 1 queue']);
   });
 
-  test('tapping a single in line offers Join team', () => {
-    expect(buttonState(state(), { kind: 'entry', id: 'q2' })).toEqual({ buttons: [{ label: 'Join team', disabled: false, action: { k: 'joinTeam', b: { entryId: 'q2' } } }], preview: null });
+  test('tapping a single in line offers to invite the player', () => {
+    expect(buttonState(state(), { kind: 'entry', id: 'q2' })).toEqual({ buttons: [{ label: 'Invite to team', disabled: false, action: { k: 'invite', b: { userId: 'noor' } } }], preview: null });
   });
 
   test('tapping my own row offers Leave', () => {
@@ -175,17 +175,11 @@ describe('bottom buttons', () => {
   });
 });
 
-describe('selection and alerts', () => {
+describe('selection', () => {
   test('a selection that disappears is cleared', () => {
     expect(validSelection(state(), { kind: 'entry', id: 'gone' })).toBeNull();
     expect(validSelection(state(), { kind: 'entry', id: 'q1' })).toEqual({ kind: 'entry', id: 'q1' });
     expect(validSelection(state(), { kind: 'court', court: 5 })).toBeNull();
-  });
-
-  test('called up only when moving from the queue to a court', () => {
-    expect(justCalledUp({ where: 'queue' }, { where: 'court' })).toBe(true);
-    expect(justCalledUp(null, { where: 'court' })).toBe(false);
-    expect(justCalledUp({ where: 'court' }, { where: 'court' })).toBe(false);
   });
 });
 

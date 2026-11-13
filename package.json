@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.10",
-    "vite": "^8.3.6",
+    "vite": "^8.3.8",
     "vitest": "^4.1.12"
   },
   "engines": {
